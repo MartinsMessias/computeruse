@@ -5,10 +5,12 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 fn send_key(inp: INPUT) -> Result<()> {
+    let _ = crate::desktop::attach_thread_to_input_desktop();
     unsafe {
         let sent = SendInput(&[inp], std::mem::size_of::<INPUT>() as i32);
         if sent == 0 {
-            return Err(CuError::Windows("SendInput failed".into()));
+            let last_err = windows::Win32::Foundation::GetLastError();
+            return Err(CuError::Windows(format!("SendInput failed: {:?}", last_err)));
         }
     }
     Ok(())

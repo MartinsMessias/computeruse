@@ -2,12 +2,13 @@ use crate::error::{CuError, Result};
 use crate::screen::{cursor_position, set_cursor_position};
 use crate::types::{MouseButton, Point};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN,
-    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN,
-    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
+    SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
+    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
+    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
 };
 
 fn send_mouse(input: MOUSEINPUT) -> Result<()> {
+    let _ = crate::desktop::attach_thread_to_input_desktop();
     unsafe {
         let inp = INPUT {
             r#type: INPUT_MOUSE,
@@ -15,7 +16,8 @@ fn send_mouse(input: MOUSEINPUT) -> Result<()> {
         };
         let sent = SendInput(&[inp], std::mem::size_of::<INPUT>() as i32);
         if sent == 0 {
-            return Err(CuError::Windows("SendInput failed".into()));
+            let last_err = windows::Win32::Foundation::GetLastError();
+            return Err(CuError::Windows(format!("SendInput failed: {:?}", last_err)));
         }
     }
     Ok(())
@@ -33,7 +35,22 @@ fn button_flags(btn: MouseButton, down: bool) -> (u32, u32) {
 }
 
 pub fn move_to(p: Point) -> Result<()> {
-    set_cursor_position(p)
+    set_cursor_position(p)?;
+    if let Ok((w, h)) = crate::screen::screen_size() {
+        if w > 0 && h > 0 {
+            let norm_x = ((p.x as f64) * 65535.0 / (w as f64 - 1.0)).round() as i32;
+            let norm_y = ((p.y as f64) * 65535.0 / (h as f64 - 1.0)).round() as i32;
+            let _ = send_mouse(MOUSEINPUT {
+                dx: norm_x,
+                dy: norm_y,
+                mouseData: 0,
+                dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                time: 0,
+                dwExtraInfo: 0,
+            });
+        }
+    }
+    Ok(())
 }
 
 pub fn move_relative(dx: i32, dy: i32) -> Result<Point> {
@@ -96,17 +113,17 @@ pub fn mouse_up(btn: MouseButton) -> Result<()> {
 }
 
 pub fn drag(from: Point, to: Point, btn: MouseButton) -> Result<()> {
-    set_cursor_position(from)?;
+    move_to(from)?;
     std::thread::sleep(std::time::Duration::from_millis(40));
     mouse_down(btn)?;
     std::thread::sleep(std::time::Duration::from_millis(60));
     // move in steps
-    let steps = 20;
+    let steps = 25;
     for i in 1..=steps {
         let t = i as f64 / steps as f64;
         let x = from.x as f64 + (to.x - from.x) as f64 * t;
         let y = from.y as f64 + (to.y - from.y) as f64 * t;
-        set_cursor_position(Point { x: x as i32, y: y as i32 })?;
+        move_to(Point { x: x.round() as i32, y: y.round() as i32 })?;
         std::thread::sleep(std::time::Duration::from_millis(8));
     }
     std::thread::sleep(std::time::Duration::from_millis(40));
