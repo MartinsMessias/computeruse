@@ -129,6 +129,14 @@ enum Commands {
     WindowOpacity { hwnd: isize, alpha: u8 },
     /// Execute a JSON command from stdin or arg
     Exec { json: Option<String> },
+    /// Observe current desktop state & Set-of-Marks perception
+    Observe,
+    /// Execute an atomic AgentAction from JSON string or stdin
+    Step { action: Option<String>, #[arg(long)] stdin: bool },
+    /// Interactive Agent REPL loop (reads JSON action on stdin, emits JSON observation on stdout)
+    Repl,
+    /// Run as a standard Model Context Protocol (MCP) server over stdio
+    Mcp,
 }
 
 fn btn(s: &str) -> MouseButton {
@@ -698,6 +706,64 @@ fn main() {
                 results.push(run_action(&c));
             }
             out(json!({"results": results}));
+        }
+        Commands::Observe => {
+            let mut env = ComputerUse::agent_env();
+            match env.observe() {
+                Ok(obs) => out(json!({"ok": true, "observation": obs})),
+                Err(e) => err(e),
+            }
+        }
+        Commands::Step { action: a, stdin } => {
+            let input = if stdin || a.as_deref() == Some("-") {
+                let mut s = String::new();
+                io::stdin().read_to_string(&mut s).ok();
+                s
+            } else if let Some(s) = a {
+                s
+            } else {
+                let mut s = String::new();
+                io::stdin().read_to_string(&mut s).ok();
+                s
+            };
+            let mut env = ComputerUse::agent_env();
+            let _ = env.observe();
+            match serde_json::from_str::<AgentAction>(&input) {
+                Ok(act) => match env.step(act) {
+                    Ok(res) => out(json!({"ok": true, "step": res})),
+                    Err(e) => err(e),
+                },
+                Err(e) => err(CuError::Json(e)),
+            }
+        }
+        Commands::Repl => {
+            use std::io::BufRead;
+            let stdin = io::stdin();
+            let mut env = ComputerUse::agent_env();
+            match env.observe() {
+                Ok(obs) => println!("{}", json!({"event": "ready", "observation": obs})),
+                Err(e) => println!("{}", json!({"event": "error", "error": e.to_string()})),
+            }
+            for line in stdin.lock().lines() {
+                if let Ok(l) = line {
+                    let trim = l.trim();
+                    if trim.is_empty() { continue; }
+                    if trim == "quit" || trim == "exit" { break; }
+                    match serde_json::from_str::<AgentAction>(trim) {
+                        Ok(act) => match env.step(act) {
+                            Ok(res) => println!("{}", json!({"event": "step", "result": res})),
+                            Err(e) => println!("{}", json!({"event": "step_error", "error": e.to_string()})),
+                        },
+                        Err(e) => println!("{}", json!({"event": "parse_error", "error": e.to_string()})),
+                    }
+                }
+            }
+        }
+        Commands::Mcp => {
+            if let Err(e) = computeruse::mcp::run_mcp_server() {
+                eprintln!("[computeruse-mcp] Error: {}", e);
+                std::process::exit(1);
+            }
         }
     }
 }

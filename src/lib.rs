@@ -16,6 +16,7 @@
 //!
 //! See the README for CLI usage.
 
+pub mod agent;
 pub mod audio;
 pub mod canvas;
 pub mod clipboard;
@@ -23,6 +24,7 @@ pub mod desktop;
 pub mod error;
 pub mod keyboard;
 pub mod launch;
+pub mod mcp;
 pub mod mouse;
 pub mod pixel;
 pub mod process;
@@ -33,6 +35,7 @@ pub mod types;
 pub mod uia;
 pub mod window;
 
+pub use agent::{AgentAction, AgentEnvironment, Observation, StepResult};
 pub use canvas::DynamicCanvas;
 pub use error::{CuError, Result};
 pub use som::{InteractiveElement, SomSnapshot};
@@ -150,5 +153,10 @@ impl ComputerUse {
     // Set-of-Marks & Neuro-Symbolic Perception
     pub fn som_snapshot(hwnd: isize) -> Result<SomSnapshot> {
         som::capture_som(hwnd)
+    }
+
+    // Dynamic Agent Perception-Action Environment
+    pub fn agent_env() -> AgentEnvironment {
+        AgentEnvironment::new()
     }
 }
