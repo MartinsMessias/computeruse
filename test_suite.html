@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ComputerUse Cyber-Terminal Mission Control</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #111827;
+            --border-color: #1f2937;
+            --primary: #38bdf8;
+            --accent: #f43f5e;
+            --success: #10b981;
+            --text: #f3f4f6;
+            --text-dim: #9ca3af;
+        }
+
+        body.theme-matrix {
+            --bg-color: #051409;
+            --card-bg: #09200f;
+            --border-color: #00ff6633;
+            --primary: #00ff66;
+            --accent: #00ffcc;
+            --success: #00ff66;
+            --text: #e6ffed;
+            --text-dim: #5cbf78;
+        }
+
+        body.theme-cyberpunk {
+            --bg-color: #18052e;
+            --card-bg: #280b4d;
+            --border-color: #ff007f55;
+            --primary: #ff007f;
+            --accent: #00f0ff;
+            --success: #ffe600;
+            --text: #ffffff;
+            --text-dim: #d896ff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text);
+            padding: 24px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .logo {
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: 1.5px;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-badge {
+            font-size: 13px;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 20px;
+            background: rgba(244, 63, 94, 0.15);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-badge.verified {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+            border-color: var(--success);
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+        }
+
+        .form-group {
+            margin-bottom: 14px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+
+        input[type="text"], textarea {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+        }
+
+        input[type="text"]:focus, textarea:focus {
+            border-color: var(--primary);
+        }
+
+        textarea {
+            height: 75px;
+            resize: none;
+        }
+
+        .theme-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            padding: 10px 16px;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .btn-theme {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-theme.active {
+            background: var(--primary);
+            color: #000;
+            border-color: var(--primary);
+        }
+
+        .slider-group {
+            margin-bottom: 16px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            accent-color: var(--primary);
+            cursor: pointer;
+        }
+
+        canvas {
+            background: #060911;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            display: block;
+            width: 100%;
+            height: 180px;
+            cursor: crosshair;
+        }
+
+        .btn-submit {
+            width: 100%;
+            background: var(--primary);
+            color: #000;
+            padding: 14px;
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border-radius: 8px;
+            margin-top: 14px;
+        }
+
+        .btn-submit:hover {
+            filter: brightness(1.15);
+        }
+
+        .terminal-log {
+            background: #05070e;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px;
+            height: 140px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px;
+            color: var(--text-dim);
+            line-height: 1.4;
+        }
+
+        .terminal-log .highlight {
+            color: var(--success);
+        }
+    </style>
+</head>
+<body id="app-body">
+    <div class="container">
+        <header>
+            <div class="logo">
+                <span>⚡</span> COMPUTERUSE CYBER-TERMINAL
+            </div>
+            <div id="status-badge" class="status-badge">
+                [STATUS: UNVERIFIED]
+            </div>
+        </header>
+
+        <!-- Left: Form Controls -->
+        <div class="card">
+            <div class="card-title">🛡️ AGENT REGISTRATION & MISSION DATA</div>
+            
+            <div class="form-group">
+                <label>Agent Codename</label>
+                <input type="text" id="agent-name" placeholder="Waiting for autonomous agent...">
+            </div>
+
+            <div class="form-group">
+                <label>Intelligence Payload (Extracted from Live Web)</label>
+                <textarea id="intel-payload" placeholder="Awaiting autonomous web extraction..."></textarea>
+            </div>
+
+            <label>Interface Theme Mode</label>
+            <div class="theme-buttons">
+                <button type="button" class="btn-theme active" id="btn-default" onclick="setTheme('default')">Default Cyber</button>
+                <button type="button" class="btn-theme" id="btn-matrix" onclick="setTheme('matrix')">Matrix Green</button>
+                <button type="button" class="btn-theme" id="btn-cyberpunk" onclick="setTheme('cyberpunk')">Synthwave</button>
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <span>NEURAL BANDWIDTH</span>
+                    <span id="slider-val">50%</span>
+                </div>
+                <input type="range" id="throttle-slider" min="0" max="100" value="50" oninput="updateSlider(this.value)">
+            </div>
+        </div>
+
+        <!-- Right: Canvas & Telemetry -->
+        <div class="card">
+            <div class="card-title">✍️ BIOMETRIC CANVAS SIGNATURE</div>
+            <canvas id="sig-canvas" width="480" height="180"></canvas>
+            
+            <button type="button" class="btn-submit" id="btn-execute" onclick="executeMission()">
+                🚀 VERIFY & EXECUTE MISSION
+            </button>
+        </div>
+
+        <!-- Full-width: Live Telemetry Console -->
+        <div class="card" style="grid-column: 1 / -1;">
+            <div class="card-title">📡 REAL-TIME EVENT STREAM TELEMETRY</div>
+            <div id="terminal-log" class="terminal-log">
+                <div>[00:00:00] Terminal initialized. Waiting for ComputerUse Agent input...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('sig-canvas');
+        const ctx = canvas.getContext('2d');
+        const logBox = document.getElementById('terminal-log');
+        let pointsDrawn = 0;
+        let isDrawing = false;
+
+        function logEvent(msg, isHighlight = false) {
+            const time = new Date().toTimeString().split(' ')[0];
+            const div = document.createElement('div');
+            if (isHighlight) div.className = 'highlight';
+            div.textContent = `[${time}] ${msg}`;
+            logBox.appendChild(div);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function setTheme(name) {
+            document.body.className = '';
+            document.querySelectorAll('.btn-theme').forEach(b => b.classList.remove('active'));
+            if (name === 'matrix') {
+                document.body.classList.add('theme-matrix');
+                document.getElementById('btn-matrix').classList.add('active');
+            } else if (name === 'cyberpunk') {
+                document.body.classList.add('theme-cyberpunk');
+                document.getElementById('btn-cyberpunk').classList.add('active');
+            } else {
+                document.getElementById('btn-default').classList.add('active');
+            }
+            logEvent(`Theme updated to: ${name.toUpperCase()}`);
+        }
+
+        function updateSlider(val) {
+            document.getElementById('slider-val').textContent = val + '%';
+            logEvent(`Neural Bandwidth calibrated to ${val}%`);
+        }
+
+        // Canvas drawing listeners
+        function getCanvasPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: (e.clientX - rect.left) * (canvas.width / rect.width),
+                y: (e.clientY - rect.top) * (canvas.height / rect.height)
+            };
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDrawing = true;
+            const pos = getCanvasPos(e);
+            ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--primary').trim();
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+            pointsDrawn++;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing) return;
+            const pos = getCanvasPos(e);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+            pointsDrawn++;
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isDrawing) {
+                isDrawing = false;
+                logEvent(`Canvas stroke finished. Total vectors: ${pointsDrawn}`);
+            }
+        });
+
+        function executeMission() {
+            const name = document.getElementById('agent-name').value;
+            const intel = document.getElementById('intel-payload').value;
+            const badge = document.getElementById('status-badge');
+
+            if (!name) {
+                logEvent('ERROR: Agent Codename is missing!');
+                return;
+            }
+
+            logEvent(`Mission verified for Agent: ${name}`, true);
+            logEvent(`Payload size: ${intel.length} bytes processed.`, true);
+            logEvent(`Biometric signature validated (${pointsDrawn} points recorded).`, true);
+            logEvent('>>> SYSTEM FULLY VERIFIED & SECURED <<<', true);
+
+            badge.textContent = '[STATUS: 100% VERIFIED & SECURED]';
+            badge.classList.add('verified');
+        }
+
+        document.getElementById('agent-name').addEventListener('input', (e) => {
+            logEvent(`Agent input updated: "${e.target.value}"`);
+        });
+    </script>
+</body>
+</html>
