@@ -17,6 +17,7 @@
 //! See the README for CLI usage.
 
 pub mod audio;
+pub mod canvas;
 pub mod clipboard;
 pub mod desktop;
 pub mod error;
@@ -26,12 +27,15 @@ pub mod mouse;
 pub mod pixel;
 pub mod process;
 pub mod screen;
+pub mod som;
 pub mod system;
 pub mod types;
 pub mod uia;
 pub mod window;
 
+pub use canvas::DynamicCanvas;
 pub use error::{CuError, Result};
+pub use som::{InteractiveElement, SomSnapshot};
 pub use types::*;
 
 /// High-level handle. All methods are free functions too; this struct groups them for ergonomics.
@@ -137,4 +141,14 @@ impl ComputerUse {
     pub fn system_drives() -> Result<Vec<DriveInfo>> { system::get_drives() }
     pub fn system_lock() -> Result<()> { system::lock() }
     pub fn system_special_folder(name: &str) -> Result<String> { system::get_special_folder(name) }
+
+    // Dynamic Canvas & Adaptive Vector Drawing
+    pub fn canvas_find_in_window(hwnd: isize) -> Result<DynamicCanvas> {
+        DynamicCanvas::find_in_window(hwnd)
+    }
+
+    // Set-of-Marks & Neuro-Symbolic Perception
+    pub fn som_snapshot(hwnd: isize) -> Result<SomSnapshot> {
+        som::capture_som(hwnd)
+    }
 }
