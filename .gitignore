@@ -1,0 +1,6 @@
+/target/
+**/*.rs.bk
+*.pdb
+demo_*.png
+.DS_Store
+Thumbs.db
