@@ -82,6 +82,28 @@ impl ComputerUse {
     pub fn wait_for_window(title: &str, timeout_ms: u64) -> Result<WindowInfo> { window::wait_for_window(title, timeout_ms) }
     pub fn set_window_topmost(hwnd: isize, topmost: bool) -> Result<()> { window::set_topmost(hwnd, topmost) }
     pub fn set_window_opacity(hwnd: isize, alpha: u8) -> Result<()> { window::set_opacity(hwnd, alpha) }
+    pub fn window_rect(hwnd: isize) -> Result<Rect> {
+        let win = window::find_window_by_hwnd(hwnd)?;
+        Ok(win.rect)
+    }
+    pub fn click_window_rel(hwnd: isize, rel_x: f64, rel_y: f64, btn: MouseButton) -> Result<()> {
+        let r = Self::window_rect(hwnd)?;
+        let abs_x = r.x + ((r.width as f64) * rel_x).round() as i32;
+        let abs_y = r.y + ((r.height as f64) * rel_y).round() as i32;
+        mouse::click(btn, Some(Point { x: abs_x, y: abs_y }))
+    }
+    pub fn drag_window_rel(hwnd: isize, from: (f64, f64), to: (f64, f64), btn: MouseButton) -> Result<()> {
+        let r = Self::window_rect(hwnd)?;
+        let p1 = Point {
+            x: r.x + ((r.width as f64) * from.0).round() as i32,
+            y: r.y + ((r.height as f64) * from.1).round() as i32,
+        };
+        let p2 = Point {
+            x: r.x + ((r.width as f64) * to.0).round() as i32,
+            y: r.y + ((r.height as f64) * to.1).round() as i32,
+        };
+        mouse::drag(p1, p2, btn)
+    }
 
     // Clipboard
     pub fn clipboard_get() -> Result<String> { clipboard::get_text() }
@@ -99,6 +121,7 @@ impl ComputerUse {
     pub fn uia_element_at_point(x: i32, y: i32) -> Result<UiElementInfo> { uia::element_at_point(x, y) }
     pub fn uia_focused_element() -> Result<UiElementInfo> { uia::focused_element() }
     pub fn uia_find_by_name(name: &str) -> Result<Vec<UiElementInfo>> { uia::find_by_name(name) }
+    pub fn uia_find_by_id(id: &str) -> Result<Vec<UiElementInfo>> { uia::find_by_automation_id(id) }
     pub fn uia_click_by_name(name: &str) -> Result<UiElementInfo> { uia::click_by_name(name) }
     pub fn uia_children(hwnd: isize) -> Result<Vec<UiElementInfo>> { uia::get_children(hwnd) }
 

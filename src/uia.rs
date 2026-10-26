@@ -64,6 +64,22 @@ pub fn find_by_name(name: &str) -> Result<Vec<UiElementInfo>> {
     Ok(els.iter().map(to_info).collect())
 }
 
+pub fn find_by_automation_id(id: &str) -> Result<Vec<UiElementInfo>> {
+    let automation = UIAutomation::new().map_err(|e| CuError::Windows(e.to_string()))?;
+    let root = automation.get_root_element().map_err(|e| CuError::Windows(e.to_string()))?;
+    let cond = automation
+        .create_property_condition(
+            uiautomation::types::UIProperty::AutomationId,
+            uiautomation::variants::Variant::from(id.to_string()),
+            None,
+        )
+        .map_err(|e| CuError::Windows(e.to_string()))?;
+    let els = root
+        .find_all(uiautomation::types::TreeScope::Descendants, &cond)
+        .map_err(|e| CuError::Windows(e.to_string()))?;
+    Ok(els.iter().map(to_info).collect())
+}
+
 pub fn click_by_name(name: &str) -> Result<UiElementInfo> {
     let automation = UIAutomation::new().map_err(|e| CuError::Windows(e.to_string()))?;
     let root = automation.get_root_element().map_err(|e| CuError::Windows(e.to_string()))?;
