@@ -14,16 +14,17 @@ Instead of relying on slow, lossy 4K screenshot-to-pixel guessing loops, `comput
 - **Targeted Visual Crops & Annotated Badges (`cu_screenshot`)**: Crop directly to a specific UI element (`mark_id`), only the drawing canvas (`canvas_only: true`), or a custom rectangle (`region: {x, y, width, height}`), overlay numbered Set-of-Marks `[ID]` badges (`annotate_marks: true`), and save directly to disk (`save_path`, `omit_base64: true`).
 
 ### 2. Pillar II — Atomic Transactions & Vector Macro-JIT
-- **Zero-Roundtrip Action Pipelines (`cu_batch`)**: Execute multi-step workflows (`click_mark`, `click_name`, `type`, `key`, `hotkey`, `scroll`, `focus_window`, `wait`, `wait_for_change`) in a single atomic call and receive the post-transaction `prompt_summary` and `ui_delta` immediately. Accepts flexible JSON schemas (`{"action": "..."}`, `{"type": "..."}`, or `{"ClickName": {...}}`).
+- **Zero-Roundtrip Action Pipelines (`cu_batch` & `cu_fill_mark`)**: Execute multi-step workflows (`click_mark`, `right_click_mark`, `hover_mark`, `fill_mark`, `click_name`, `type`, `paste`, `key`, `hotkey`, `scroll`, `focus_window`, `wait`, `wait_for_change`, `wait_for_text`) in a single atomic call and receive the post-transaction `prompt_summary` and `ui_delta` immediately. `cu_fill_mark` clicks an input field by `mark_id`, optionally clears existing text (`Ctrl+A -> Backspace`), types/pastes text, and optionally submits (`Enter`) in a single call.
 - **Parametric Vector & Pointillist Canvas Engine (`cu_canvas_draw`)**: Automatically detects the exact drawing surface (`DynamicCanvas`) and renders multi-layered geometric primitives (`gear`, `star`, `polygon`, `circle`, `spiral`, `line`, `rect`, `bezier`, `text`, `dots`/`points`) with aspect-ratio compensation, WinUI3 Ribbon focus-recovery, and automatic closed-shape first-edge sealing.
 - **UTF-16 Surrogate & Instant Clipboard Typing (`cu_type`)**: Full UTF-16 surrogate pair support, automatic `\n`/`\t` virtual key translation, full OEM punctuation hotkey resolution (`+`, `-`, `=`, `/`, `[`, `]`, etc.), and non-destructive instant clipboard paste (`paste: true`).
 
 ### 3. Pillar III — Per-Monitor DPI v2 & Virtual Desktop Input Fidelity
 - **Per-Monitor DPI v2**: Automatically activates `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` (`enable_per_monitor_dpi_v2`) and attaches threads to the active input desktop (`OpenInputDesktop` / `SetThreadDesktop`).
 - **Virtual Desktop Hardware Injection**: Normalizes `SendInput` coordinates across the full virtual desktop (`SM_XVIRTUALSCREEN`, `SM_YVIRTUALSCREEN`, `SM_CXVIRTUALSCREEN`, `SM_CYVIRTUALSCREEN`) with `MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE` for 1:1 physical accuracy across multi-monitor and negative-coordinate layouts.
+- **O(1) Win32 Window Inspection & Visible-First Matching**: `find_window_by_hwnd` queries `IsWindow` + `GetWindowRect` in O(1) microseconds without enumerating the desktop, while `find_window` prioritizes visible non-zero windows over background message HWNDs.
 
 ### 4. Pillar IV — Event-Driven Reactive Synchronization & State Delta
-- **Reactive UI Settling (`cu_wait_for_change`)**: Polls the foreground HWND, window title, and UIA element structure in `25ms` ticks, returning the instant a menu, popup, or window transition occurs instead of sleeping blindly.
+- **Reactive UI & Visual Settling (`cu_wait_for_change` & `cu_wait_for_text`)**: Polls the foreground HWND, window title, UIA element structure, and 64-bit FNV-1a visual pixel checksum (`region_visual_checksum`) in `25ms` ticks, returning the instant a menu, popup, canvas stroke, or target text substring (`cu_wait_for_text`) appears instead of sleeping blindly.
 - **Structural Delta Verification (`UiDelta`)**: Every interactive step reports a `ui_delta` summary (e.g., `"UI tree updated (+12 interactive elements, total 64)"` or `"Window switched -> ..."`), allowing the agent to detect immediately whether a click succeeded.
 
 ---
@@ -36,18 +37,18 @@ Run as a native stdio MCP server or synchronize schemas directly to Antigravity'
 # Start the stdio JSON-RPC 2.0 MCP server (auto-syncs schemas on startup)
 cu mcp
 
-# Force-sync all 30 tool schemas + instructions.md to ~/.gemini/antigravity-cli/mcp/computeruse
+# Force-sync all 40 tool schemas + instructions.md to ~/.gemini/antigravity-cli/mcp/computeruse
 cu mcp --sync
 ```
 
-### Available MCP Tools (30 Tools)
+### Available MCP Tools (40 Tools)
 
 | Category | Tools |
 |---|---|
-| **Perception & Visual** | `cu_observe`, `cu_read_window_text`, `cu_screenshot`, `cu_inspect_element_at` |
-| **Semantic & Mouse Input** | `cu_click_mark`, `cu_click_name`, `cu_click_rel`, `cu_click_coords`, `cu_double_click`, `cu_move`, `cu_drag`, `cu_drag_rel`, `cu_mouse_down`, `cu_mouse_up`, `cu_scroll` |
-| **Keyboard & Clipboard** | `cu_type`, `cu_key`, `cu_hotkey`, `cu_clipboard_get`, `cu_clipboard_set` |
-| **Atomic Batch & Reactive Sync** | `cu_batch`, `cu_wait_for_change` |
+| **Perception & Visual** | `cu_observe`, `cu_read_window_text`, `cu_screenshot`, `cu_find_color`, `cu_inspect_element_at` |
+| **Semantic & Mouse Input** | `cu_click_mark`, `cu_right_click_mark`, `cu_hover_mark`, `cu_fill_mark`, `cu_drag_mark_to_mark`, `cu_click_name`, `cu_click_rel`, `cu_click_coords`, `cu_double_click`, `cu_triple_click`, `cu_move`, `cu_drag`, `cu_drag_rel`, `cu_mouse_down`, `cu_mouse_up`, `cu_scroll` |
+| **Keyboard & Clipboard** | `cu_type`, `cu_key`, `cu_hotkey`, `cu_copy_selection`, `cu_clipboard_get`, `cu_clipboard_set`, `cu_clipboard_set_image` |
+| **Atomic Batch & Reactive Sync** | `cu_batch`, `cu_wait_for_change`, `cu_wait_for_text` |
 | **Vector Canvas Engine** | `cu_canvas_draw`, `cu_canvas_clear` |
 | **Window Management** | `cu_focus_window`, `cu_list_windows`, `cu_close_window`, `cu_maximize_window`, `cu_minimize_window` |
 | **System, Process & Audio** | `cu_launch_app`, `cu_list_processes`, `cu_kill_process`, `cu_audio_beep`, `cu_audio_volume`, `cu_sysinfo`, `cu_sync_schemas` |

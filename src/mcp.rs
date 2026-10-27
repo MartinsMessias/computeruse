@@ -210,11 +210,12 @@ pub fn get_all_tools() -> Vec<Value> {
         }),
         json!({
             "name": "cu_click_mark",
-            "description": "Click on an interactive UI element by its Set-of-Marks mark_id.",
+            "description": "Click on an interactive UI element by its Set-of-Marks mark_id, optionally holding modifiers (e.g. ['ctrl'], ['shift']).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "mark_id": { "type": "integer", "description": "The mark_id number from cu_observe" }
+                    "mark_id": { "type": "integer", "description": "The mark_id number from cu_observe" },
+                    "modifiers": { "type": "array", "items": { "type": "string" }, "description": "Optional held modifiers e.g. ['ctrl', 'shift']" }
                 },
                 "required": ["mark_id"]
             }
@@ -232,26 +233,28 @@ pub fn get_all_tools() -> Vec<Value> {
         }),
         json!({
             "name": "cu_click_rel",
-            "description": "Click at normalized (0.0..1.0) coordinates relative to the active window.",
+            "description": "Click at normalized (0.0..1.0) coordinates relative to the active window, optionally with held modifiers.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "x": { "type": "number", "description": "Normalized X (0.0=left, 1.0=right)" },
                     "y": { "type": "number", "description": "Normalized Y (0.0=top, 1.0=bottom)" },
-                    "button": { "type": "string", "enum": ["left", "right", "middle"], "default": "left" }
+                    "button": { "type": "string", "enum": ["left", "right", "middle"], "default": "left" },
+                    "modifiers": { "type": "array", "items": { "type": "string" }, "description": "Optional held modifiers e.g. ['ctrl', 'shift']" }
                 },
                 "required": ["x", "y"]
             }
         }),
         json!({
             "name": "cu_click_coords",
-            "description": "Click at absolute physical screen coordinates (x, y).",
+            "description": "Click at absolute physical screen coordinates (x, y), optionally with held modifiers.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "x": { "type": "integer" },
                     "y": { "type": "integer" },
-                    "button": { "type": "string", "enum": ["left", "right", "middle"], "default": "left" }
+                    "button": { "type": "string", "enum": ["left", "right", "middle"], "default": "left" },
+                    "modifiers": { "type": "array", "items": { "type": "string" }, "description": "Optional held modifiers e.g. ['ctrl', 'shift']" }
                 },
                 "required": ["x", "y"]
             }
@@ -266,6 +269,101 @@ pub fn get_all_tools() -> Vec<Value> {
                     "x": { "type": "integer", "description": "Optional X coordinate" },
                     "y": { "type": "integer", "description": "Optional Y coordinate" }
                 }
+            }
+        }),
+        json!({
+            "name": "cu_triple_click",
+            "description": "Triple-click on an interactive element by mark_id or coordinates to select an entire line or paragraph.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mark_id": { "type": "integer", "description": "Optional mark_id to triple-click" },
+                    "x": { "type": "integer", "description": "Optional X coordinate" },
+                    "y": { "type": "integer", "description": "Optional Y coordinate" }
+                }
+            }
+        }),
+        json!({
+            "name": "cu_drag_mark_to_mark",
+            "description": "Drag directly from one Set-of-Marks element (from_mark) onto another (to_mark), optionally holding modifiers (e.g. ['ctrl'] or ['alt']).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "from_mark": { "type": "integer", "description": "Source mark_id to drag from" },
+                    "to_mark": { "type": "integer", "description": "Destination mark_id to drop onto" },
+                    "modifiers": { "type": "array", "items": { "type": "string" }, "description": "Optional held modifiers e.g. ['ctrl', 'shift', 'alt']" }
+                },
+                "required": ["from_mark", "to_mark"]
+            }
+        }),
+        json!({
+            "name": "cu_copy_selection",
+            "description": "Copy the currently highlighted text/selection (Ctrl+C) while preserving the user's previous clipboard contents, returning the selected text.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        }),
+        json!({
+            "name": "cu_clipboard_set_image",
+            "description": "Copy a screen region directly into the Windows Clipboard as a native CF_BITMAP image so it can be pasted (Ctrl+V) into any application.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "x": { "type": "integer" },
+                    "y": { "type": "integer" },
+                    "width": { "type": "integer" },
+                    "height": { "type": "integer" }
+                },
+                "required": ["x", "y", "width", "height"]
+            }
+        }),
+        json!({
+            "name": "cu_right_click_mark",
+            "description": "Right-click on an interactive UI element by its Set-of-Marks mark_id to open context menus.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mark_id": { "type": "integer", "description": "The mark_id number from cu_observe" }
+                },
+                "required": ["mark_id"]
+            }
+        }),
+        json!({
+            "name": "cu_hover_mark",
+            "description": "Move the mouse cursor to hover over an interactive UI element by its Set-of-Marks mark_id.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mark_id": { "type": "integer", "description": "The mark_id number from cu_observe" }
+                },
+                "required": ["mark_id"]
+            }
+        }),
+        json!({
+            "name": "cu_fill_mark",
+            "description": "Click an input field by mark_id, optionally clear its existing text (Ctrl+A -> Backspace), type/paste text, and optionally press Enter in a single atomic call.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mark_id": { "type": "integer", "description": "The mark_id of the target input field" },
+                    "text": { "type": "string", "description": "Text to enter into the field" },
+                    "clear": { "type": "boolean", "description": "Whether to clear existing text first (default: true)", "default": true },
+                    "submit": { "type": "boolean", "description": "Whether to press Enter after typing (default: false)", "default": false }
+                },
+                "required": ["mark_id", "text"]
+            }
+        }),
+        json!({
+            "name": "cu_wait_for_text",
+            "description": "Reactively poll the active window until a target text substring appears in the UI tree or window text (up to timeout_ms).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Case-insensitive text substring to wait for" },
+                    "timeout_ms": { "type": "integer", "description": "Maximum wait time in milliseconds (default: 3000)", "default": 3000 }
+                },
+                "required": ["text"]
             }
         }),
         json!({
@@ -304,53 +402,60 @@ pub fn get_all_tools() -> Vec<Value> {
         }),
         json!({
             "name": "cu_scroll",
-            "description": "Scroll the mouse wheel. Negative values scroll down, positive scroll up.",
+            "description": "Scroll the mouse wheel, optionally at a specific mark_id or (x,y) container and with optional modifiers (e.g. ['ctrl'] to zoom).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "amount": { "type": "integer", "description": "Scroll delta (e.g. -350 for down, 350 for up)" },
-                    "horizontal": { "type": "boolean", "default": false }
+                    "amount": { "type": "integer", "description": "Scroll delta in clicks (e.g. -5 for down, 5 for up)" },
+                    "horizontal": { "type": "boolean", "default": false },
+                    "mark_id": { "type": "integer", "description": "Optional mark_id of the scrollable container" },
+                    "x": { "type": "integer", "description": "Optional X coordinate to hover before scrolling" },
+                    "y": { "type": "integer", "description": "Optional Y coordinate to hover before scrolling" },
+                    "modifiers": { "type": "array", "items": { "type": "string" }, "description": "Optional held modifiers e.g. ['ctrl'] for zoom" }
                 },
                 "required": ["amount"]
             }
         }),
         json!({
             "name": "cu_move",
-            "description": "Move the mouse cursor to absolute or relative coordinates.",
+            "description": "Move the mouse cursor to absolute or relative coordinates, optionally using a smooth human ease-in-out glide.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "x": { "type": "integer", "description": "Absolute X screen position" },
                     "y": { "type": "integer", "description": "Absolute Y screen position" },
                     "dx": { "type": "integer", "description": "Relative X delta" },
-                    "dy": { "type": "integer", "description": "Relative Y delta" }
+                    "dy": { "type": "integer", "description": "Relative Y delta" },
+                    "smooth_ms": { "type": "integer", "description": "Optional duration in ms for smooth human glide trajectory (e.g. 120)" }
                 }
             }
         }),
         json!({
             "name": "cu_drag",
-            "description": "Drag the mouse between absolute screen coordinates (from_x, from_y) -> (to_x, to_y).",
+            "description": "Drag the mouse between absolute screen coordinates (from_x, from_y) -> (to_x, to_y), optionally holding modifiers (e.g. ['shift'], ['alt']).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "from_x": { "type": "integer" },
                     "from_y": { "type": "integer" },
                     "to_x": { "type": "integer" },
-                    "to_y": { "type": "integer" }
+                    "to_y": { "type": "integer" },
+                    "modifiers": { "type": "array", "items": { "type": "string" }, "description": "Optional held modifiers e.g. ['shift', 'alt']" }
                 },
                 "required": ["from_x", "from_y", "to_x", "to_y"]
             }
         }),
         json!({
             "name": "cu_drag_rel",
-            "description": "Drag the mouse across normalized window coordinates (0.0..1.0).",
+            "description": "Drag the mouse across normalized window coordinates (0.0..1.0), optionally holding modifiers.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "from_x": { "type": "number" },
                     "from_y": { "type": "number" },
                     "to_x": { "type": "number" },
-                    "to_y": { "type": "number" }
+                    "to_y": { "type": "number" },
+                    "modifiers": { "type": "array", "items": { "type": "string" }, "description": "Optional held modifiers e.g. ['shift', 'alt']" }
                 },
                 "required": ["from_x", "from_y", "to_x", "to_y"]
             }
@@ -687,7 +792,10 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
 
         "cu_click_mark" => {
             let mark_id = args.get("mark_id").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-            match env.step(crate::AgentAction::ClickMark { mark_id }) {
+            let modifiers = args.get("modifiers").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect()
+            });
+            match env.step(crate::AgentAction::ClickMark { mark_id, modifiers }) {
                 Ok(res) => Ok(json!({
                     "success": res.success,
                     "message": res.message,
@@ -720,7 +828,10 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                 "middle" => Some(MouseButton::Middle),
                 _ => Some(MouseButton::Left),
             };
-            match env.step(crate::AgentAction::ClickRel { x, y, button }) {
+            let modifiers = args.get("modifiers").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect()
+            });
+            match env.step(crate::AgentAction::ClickRel { x, y, button, modifiers }) {
                 Ok(res) => Ok(json!({ "success": res.success, "message": res.message })),
                 Err(e) => Err(e.to_string()),
             }
@@ -735,7 +846,10 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                 "middle" => MouseButton::Middle,
                 _ => MouseButton::Left,
             };
-            match mouse::click(button, Some(Point { x, y })) {
+            let modifiers: Vec<String> = args.get("modifiers").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect()
+            }).unwrap_or_default();
+            match mouse::click_modified(button, Some(Point { x, y }), &modifiers) {
                 Ok(_) => Ok(json!({ "success": true, "x": x, "y": y })),
                 Err(e) => Err(e.to_string()),
             }
@@ -756,6 +870,103 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                     Err(e) => Err(e.to_string()),
                 }
             }
+        }
+
+        "cu_triple_click" => {
+            let mark_id = args.get("mark_id").and_then(|v| v.as_u64()).map(|v| v as usize);
+            let x = args.get("x").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let y = args.get("y").and_then(|v| v.as_i64()).map(|v| v as i32);
+            match env.step(crate::AgentAction::TripleClick { mark_id, x, y }) {
+                Ok(res) => Ok(json!({ "success": res.success, "message": res.message })),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+
+        "cu_drag_mark_to_mark" => {
+            let from_mark = args.get("from_mark").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let to_mark = args.get("to_mark").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let modifiers = args.get("modifiers").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect()
+            });
+            match env.step(crate::AgentAction::DragMarkToMark { from_mark, to_mark, modifiers }) {
+                Ok(res) => Ok(json!({
+                    "success": res.success,
+                    "message": res.message,
+                    "active_window": res.observation.window_title,
+                    "ui_delta": res.delta.summary
+                })),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+
+        "cu_copy_selection" => {
+            let selected = keyboard::copy_selection().map_err(|e| e.to_string())?;
+            Ok(json!({ "success": true, "selected_text": selected, "length": selected.len() }))
+        }
+
+        "cu_clipboard_set_image" => {
+            let x = args.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let y = args.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let width = args.get("width").and_then(|v| v.as_u64()).unwrap_or(200).max(1) as u32;
+            let height = args.get("height").and_then(|v| v.as_u64()).unwrap_or(200).max(1) as u32;
+            clipboard::set_image_from_region(Rect { x, y, width, height }).map_err(|e| e.to_string())?;
+            Ok(json!({ "success": true, "copied_region": { "x": x, "y": y, "width": width, "height": height } }))
+        }
+
+        "cu_right_click_mark" => {
+            let mark_id = args.get("mark_id").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            match env.step(crate::AgentAction::RightClickMark { mark_id }) {
+                Ok(res) => Ok(json!({
+                    "success": res.success,
+                    "message": res.message,
+                    "active_window": res.observation.window_title,
+                    "ui_delta": res.delta.summary
+                })),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+
+        "cu_hover_mark" => {
+            let mark_id = args.get("mark_id").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            match env.step(crate::AgentAction::HoverMark { mark_id }) {
+                Ok(res) => Ok(json!({
+                    "success": res.success,
+                    "message": res.message,
+                    "active_window": res.observation.window_title,
+                    "ui_delta": res.delta.summary
+                })),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+
+        "cu_fill_mark" => {
+            let mark_id = args.get("mark_id").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let clear = args.get("clear").and_then(|v| v.as_bool());
+            let submit = args.get("submit").and_then(|v| v.as_bool());
+            match env.step(crate::AgentAction::FillMark { mark_id, text, clear, submit }) {
+                Ok(res) => Ok(json!({
+                    "success": res.success,
+                    "message": res.message,
+                    "active_window": res.observation.window_title,
+                    "ui_delta": res.delta.summary,
+                    "prompt_summary": res.observation.compact_prompt
+                })),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+
+        "cu_wait_for_text" => {
+            let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(3000);
+            let (obs, elapsed) = env.wait_for_text(&text, timeout_ms).map_err(|e| e.to_string())?;
+            Ok(json!({
+                "found": true,
+                "text": text,
+                "elapsed_ms": elapsed,
+                "active_window": obs.window_title,
+                "prompt_summary": obs.compact_prompt
+            }))
         }
 
         "cu_type" => {
@@ -791,7 +1002,13 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
         "cu_scroll" => {
             let amount = args.get("amount").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
             let horizontal = args.get("horizontal").and_then(|v| v.as_bool());
-            match env.step(crate::AgentAction::Scroll { amount, horizontal }) {
+            let mark_id = args.get("mark_id").and_then(|v| v.as_u64()).map(|v| v as usize);
+            let x = args.get("x").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let y = args.get("y").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let modifiers = args.get("modifiers").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect()
+            });
+            match env.step(crate::AgentAction::Scroll { amount, horizontal, mark_id, x, y, modifiers }) {
                 Ok(res) => Ok(json!({ "success": res.success, "message": res.message })),
                 Err(e) => Err(e.to_string()),
             }
@@ -806,9 +1023,16 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             } else {
                 let x = args.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
                 let y = args.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-                match mouse::move_to(Point { x, y }) {
-                    Ok(_) => Ok(json!({ "success": true, "x": x, "y": y })),
-                    Err(e) => Err(e.to_string()),
+                if let Some(smooth_ms) = args.get("smooth_ms").and_then(|v| v.as_u64()) {
+                    match mouse::move_smooth(Point { x, y }, smooth_ms) {
+                        Ok(_) => Ok(json!({ "success": true, "x": x, "y": y, "smooth_ms": smooth_ms })),
+                        Err(e) => Err(e.to_string()),
+                    }
+                } else {
+                    match mouse::move_to(Point { x, y }) {
+                        Ok(_) => Ok(json!({ "success": true, "x": x, "y": y })),
+                        Err(e) => Err(e.to_string()),
+                    }
                 }
             }
         }
@@ -818,7 +1042,10 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             let from_y = args.get("from_y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
             let to_x = args.get("to_x").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
             let to_y = args.get("to_y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            match mouse::drag(Point { x: from_x, y: from_y }, Point { x: to_x, y: to_y }, MouseButton::Left) {
+            let modifiers: Vec<String> = args.get("modifiers").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect()
+            }).unwrap_or_default();
+            match mouse::drag_modified(Point { x: from_x, y: from_y }, Point { x: to_x, y: to_y }, MouseButton::Left, &modifiers) {
                 Ok(_) => Ok(json!({ "success": true, "from": [from_x, from_y], "to": [to_x, to_y] })),
                 Err(e) => Err(e.to_string()),
             }
@@ -829,7 +1056,10 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             let from_y = args.get("from_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let to_x = args.get("to_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let to_y = args.get("to_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            match env.step(crate::AgentAction::DragRel { from_x, from_y, to_x, to_y }) {
+            let modifiers = args.get("modifiers").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect()
+            });
+            match env.step(crate::AgentAction::DragRel { from_x, from_y, to_x, to_y, modifiers }) {
                 Ok(res) => Ok(json!({ "success": res.success, "message": res.message })),
                 Err(e) => Err(e.to_string()),
             }
@@ -1312,12 +1542,10 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
         }
 
         "cu_audio_beep" => {
-            let freq = args.get("frequency").and_then(|v| v.as_u64()).unwrap_or(750);
-            let duration = args.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(200);
-            let _ = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", &format!("[console]::beep({},{})", freq, duration)])
-                .spawn();
-            Ok(json!({ "success": true, "beep": "dispatched" }))
+            let freq = args.get("frequency").and_then(|v| v.as_u64()).unwrap_or(750) as u32;
+            let duration = args.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(200) as u32;
+            audio::beep(freq, duration).map_err(|e| e.to_string())?;
+            Ok(json!({ "success": true, "beep": "dispatched", "frequency": freq, "duration_ms": duration }))
         }
 
         "cu_audio_volume" => {

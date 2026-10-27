@@ -28,7 +28,11 @@ pub struct Observation {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum AgentAction {
     /// Click directly on a recognized UI element by its Set-of-Marks numeric ID
-    ClickMark { mark_id: usize },
+    ClickMark {
+        mark_id: usize,
+        #[serde(default)]
+        modifiers: Option<Vec<String>>,
+    },
     /// Click directly on a recognized UI element by name substring
     ClickName { name: String },
     /// Click relative to the active window in normalized coordinates (0.0 .. 1.0)
@@ -37,6 +41,8 @@ pub enum AgentAction {
         y: f64,
         #[serde(default)]
         button: Option<MouseButton>,
+        #[serde(default)]
+        modifiers: Option<Vec<String>>,
     },
     /// Click on absolute screen coordinates (x, y)
     ClickCoords {
@@ -44,22 +50,63 @@ pub enum AgentAction {
         y: i32,
         #[serde(default)]
         button: Option<MouseButton>,
+        #[serde(default)]
+        modifiers: Option<Vec<String>>,
     },
     /// Double click on a recognized mark
     DoubleClickMark { mark_id: usize },
+    /// Triple click on a recognized mark or coordinates to select an entire line/paragraph
+    TripleClick {
+        #[serde(default)]
+        mark_id: Option<usize>,
+        #[serde(default)]
+        x: Option<i32>,
+        #[serde(default)]
+        y: Option<i32>,
+    },
+    /// Right click on a recognized mark
+    RightClickMark { mark_id: usize },
+    /// Move the mouse cursor to hover over a recognized mark
+    HoverMark { mark_id: usize },
+    /// Drag from one recognized Set-of-Marks ID (`from_mark`) directly onto another (`to_mark`)
+    DragMarkToMark {
+        from_mark: usize,
+        to_mark: usize,
+        #[serde(default)]
+        modifiers: Option<Vec<String>>,
+    },
+    /// Click a mark, optionally clear its current content (Ctrl+A -> Backspace), type/paste text, and optionally press Enter
+    FillMark {
+        mark_id: usize,
+        text: String,
+        #[serde(default)]
+        clear: Option<bool>,
+        #[serde(default)]
+        submit: Option<bool>,
+    },
     /// Type text into the currently focused element
     TypeText { text: String },
+    /// Paste text instantaneously using non-destructive clipboard restoration
+    PasteText { text: String },
     /// Press a single key (e.g., "enter", "escape", "tab", "delete", "f5")
     KeyPress { key: String },
     /// Send a hotkey combination (e.g., ["ctrl", "t"] or ["alt", "f4"])
     Hotkey { keys: Vec<String> },
     /// Send a hotkey combo string (e.g., "ctrl+t", "ctrl+v", "alt+tab")
     HotkeyStr { combo: String },
-    /// Scroll the mouse wheel
+    /// Scroll the mouse wheel (optionally at a target mark_id or (x,y), and with optional modifiers like ["ctrl"] for zoom)
     Scroll {
         amount: i32,
         #[serde(default)]
         horizontal: Option<bool>,
+        #[serde(default)]
+        mark_id: Option<usize>,
+        #[serde(default)]
+        x: Option<i32>,
+        #[serde(default)]
+        y: Option<i32>,
+        #[serde(default)]
+        modifiers: Option<Vec<String>>,
     },
     /// Drag the mouse across normalized window coordinates
     DragRel {
@@ -67,6 +114,8 @@ pub enum AgentAction {
         from_y: f64,
         to_x: f64,
         to_y: f64,
+        #[serde(default)]
+        modifiers: Option<Vec<String>>,
     },
     /// Bring a window to focus by title substring
     FocusWindow { title: String },
@@ -76,6 +125,12 @@ pub enum AgentAction {
     Wait { ms: u64 },
     /// Reactively wait until foreground window or UI Automation tree changes (up to timeout_ms)
     WaitForChange { timeout_ms: u64 },
+    /// Reactively wait until a target text substring appears in the active window (up to timeout_ms)
+    WaitForText {
+        text: String,
+        #[serde(default)]
+        timeout_ms: Option<u64>,
+    },
     /// Mission completed successfully
     Done { summary: String },
     /// Mission failed
@@ -244,6 +299,33 @@ impl AgentEnvironment {
         }
     }
 
+    /// Reactively polls the active window until `target_text` (case-insensitive) appears in either the SoM snapshot or UIA window text.
+    pub fn wait_for_text(&mut self, target_text: &str, timeout_ms: u64) -> Result<(Observation, u64)> {
+        let lower = target_text.to_lowercase();
+        let start = std::time::Instant::now();
+        let timeout = Duration::from_millis(timeout_ms.max(25));
+
+        loop {
+            let obs = self.observe()?;
+            if obs.window_title.to_lowercase().contains(&lower)
+                || obs.compact_prompt.to_lowercase().contains(&lower)
+                || crate::uia::read_window_text(obs.window_hwnd)
+                    .map(|lines| lines.iter().any(|l| l.to_lowercase().contains(&lower)))
+                    .unwrap_or(false)
+            {
+                let elapsed = start.elapsed().as_millis() as u64;
+                return Ok((obs, elapsed));
+            }
+            if start.elapsed() >= timeout {
+                return Err(CuError::NotFound(format!(
+                    "Text '{}' did not appear within {} ms",
+                    target_text, timeout_ms
+                )));
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+
     /// Executes a single atomic action decided by the LLM and returns the new observation.
     pub fn step(&mut self, action: AgentAction) -> Result<StepResult> {
         let (prev_hwnd, prev_title, prev_marks) = self.last_som.as_ref()
@@ -255,13 +337,14 @@ impl AgentEnvironment {
         let mut skip_settle = false;
 
         match action {
-            AgentAction::ClickMark { mark_id } => {
+            AgentAction::ClickMark { mark_id, modifiers } => {
                 if self.last_som.is_none() {
                     let _ = self.observe();
                 }
                 if let Some(ref som) = self.last_som {
                     if let Some(el) = som.find_by_mark(mark_id) {
-                        mouse::click(MouseButton::Left, Some(el.center))?;
+                        let mods = modifiers.unwrap_or_default();
+                        mouse::click_modified(MouseButton::Left, Some(el.center), &mods)?;
                         message = format!("Clicked Mark [{:02}] \"{}\" at ({}, {})", mark_id, el.name, el.center.x, el.center.y);
                     } else {
                         return Err(CuError::NotFound(format!("Mark ID [{}] not found in current perception snapshot", mark_id)));
@@ -287,25 +370,27 @@ impl AgentEnvironment {
                 }
             }
 
-            AgentAction::ClickRel { x, y, button } => {
+            AgentAction::ClickRel { x, y, button, modifiers } => {
                 if self.last_som.is_none() {
                     let _ = self.observe();
                 }
                 let btn = button.unwrap_or(MouseButton::Left);
+                let mods = modifiers.unwrap_or_default();
                 if let Some(ref som) = self.last_som {
                     let r = som.window_rect;
                     let abs_x = r.x + ((r.width as f64) * x.clamp(0.0, 1.0)).round() as i32;
                     let abs_y = r.y + ((r.height as f64) * y.clamp(0.0, 1.0)).round() as i32;
-                    mouse::click(btn, Some(Point { x: abs_x, y: abs_y }))?;
+                    mouse::click_modified(btn, Some(Point { x: abs_x, y: abs_y }), &mods)?;
                     message = format!("Clicked window-relative ({:.2}, {:.2}) -> Screen ({}, {})", x, y, abs_x, abs_y);
                 } else {
                     return Err(CuError::Internal("No active window to calculate relative coordinates".into()));
                 }
             }
 
-            AgentAction::ClickCoords { x, y, button } => {
+            AgentAction::ClickCoords { x, y, button, modifiers } => {
                 let btn = button.unwrap_or(MouseButton::Left);
-                mouse::click(btn, Some(Point { x, y }))?;
+                let mods = modifiers.unwrap_or_default();
+                mouse::click_modified(btn, Some(Point { x, y }), &mods)?;
                 message = format!("Clicked absolute coords ({}, {})", x, y);
             }
 
@@ -325,9 +410,126 @@ impl AgentEnvironment {
                 }
             }
 
+            AgentAction::TripleClick { mark_id, x, y } => {
+                if let Some(mid) = mark_id {
+                    if self.last_som.is_none() {
+                        let _ = self.observe();
+                    }
+                    if let Some(ref som) = self.last_som {
+                        if let Some(el) = som.find_by_mark(mid) {
+                            mouse::triple_click(MouseButton::Left, Some(el.center))?;
+                            message = format!("Triple-clicked Mark [{:02}] \"{}\"", mid, el.name);
+                        } else {
+                            return Err(CuError::NotFound(format!("Mark ID [{}] not found", mid)));
+                        }
+                    } else {
+                        return Err(CuError::Internal("No perception snapshot available.".into()));
+                    }
+                } else {
+                    let pt = match (x, y) {
+                        (Some(px), Some(py)) => Some(Point { x: px, y: py }),
+                        _ => None,
+                    };
+                    mouse::triple_click(MouseButton::Left, pt)?;
+                    message = "Triple-clicked target".to_string();
+                }
+            }
+
+            AgentAction::RightClickMark { mark_id } => {
+                if self.last_som.is_none() {
+                    let _ = self.observe();
+                }
+                if let Some(ref som) = self.last_som {
+                    if let Some(el) = som.find_by_mark(mark_id) {
+                        mouse::click(MouseButton::Right, Some(el.center))?;
+                        message = format!("Right-clicked Mark [{:02}] \"{}\" at ({}, {})", mark_id, el.name, el.center.x, el.center.y);
+                    } else {
+                        return Err(CuError::NotFound(format!("Mark ID [{}] not found", mark_id)));
+                    }
+                } else {
+                    return Err(CuError::Internal("No perception snapshot available.".into()));
+                }
+            }
+
+            AgentAction::HoverMark { mark_id } => {
+                if self.last_som.is_none() {
+                    let _ = self.observe();
+                }
+                if let Some(ref som) = self.last_som {
+                    if let Some(el) = som.find_by_mark(mark_id) {
+                        mouse::move_smooth(el.center, 90)?;
+                        message = format!("Hovered smoothly over Mark [{:02}] \"{}\" at ({}, {})", mark_id, el.name, el.center.x, el.center.y);
+                    } else {
+                        return Err(CuError::NotFound(format!("Mark ID [{}] not found", mark_id)));
+                    }
+                } else {
+                    return Err(CuError::Internal("No perception snapshot available.".into()));
+                }
+            }
+
+            AgentAction::DragMarkToMark { from_mark, to_mark, modifiers } => {
+                if self.last_som.is_none() {
+                    let _ = self.observe();
+                }
+                if let Some(ref som) = self.last_som {
+                    let el_from = som.find_by_mark(from_mark)
+                        .ok_or_else(|| CuError::NotFound(format!("From Mark ID [{}] not found", from_mark)))?;
+                    let el_to = som.find_by_mark(to_mark)
+                        .ok_or_else(|| CuError::NotFound(format!("To Mark ID [{}] not found", to_mark)))?;
+                    let p1 = el_from.center;
+                    let p2 = el_to.center;
+                    let n1 = el_from.name.clone();
+                    let n2 = el_to.name.clone();
+                    let mods = modifiers.unwrap_or_default();
+                    mouse::drag_modified(p1, p2, MouseButton::Left, &mods)?;
+                    message = format!("Dragged Mark [{:02}] \"{}\" -> Mark [{:02}] \"{}\"", from_mark, n1, to_mark, n2);
+                } else {
+                    return Err(CuError::Internal("No perception snapshot available.".into()));
+                }
+            }
+
+            AgentAction::FillMark { mark_id, text, clear, submit } => {
+                if self.last_som.is_none() {
+                    let _ = self.observe();
+                }
+                if let Some(ref som) = self.last_som {
+                    if let Some(el) = som.find_by_mark(mark_id) {
+                        let center = el.center;
+                        let name = el.name.clone();
+                        mouse::click(MouseButton::Left, Some(center))?;
+                        thread::sleep(Duration::from_millis(35));
+                        if clear.unwrap_or(true) {
+                            keyboard::combo_str("ctrl+a")?;
+                            thread::sleep(Duration::from_millis(15));
+                            keyboard::key_press("backspace")?;
+                            thread::sleep(Duration::from_millis(15));
+                        }
+                        if text.len() > 64 {
+                            keyboard::paste_text(&text)?;
+                        } else {
+                            keyboard::type_text(&text)?;
+                        }
+                        if submit.unwrap_or(false) {
+                            thread::sleep(Duration::from_millis(20));
+                            keyboard::key_press("enter")?;
+                        }
+                        message = format!("Filled Mark [{:02}] \"{}\" with {} chars (clear={}, submit={})", mark_id, name, text.len(), clear.unwrap_or(true), submit.unwrap_or(false));
+                    } else {
+                        return Err(CuError::NotFound(format!("Mark ID [{}] not found", mark_id)));
+                    }
+                } else {
+                    return Err(CuError::Internal("No perception snapshot available.".into()));
+                }
+            }
+
             AgentAction::TypeText { text } => {
                 keyboard::type_text(&text)?;
                 message = format!("Typed {} characters into focused target", text.len());
+            }
+
+            AgentAction::PasteText { text } => {
+                keyboard::paste_text(&text)?;
+                message = format!("Pasted {} characters via non-destructive clipboard", text.len());
             }
 
             AgentAction::KeyPress { key } => {
@@ -345,13 +547,24 @@ impl AgentEnvironment {
                 message = format!("Dispatched hotkey: '{}'", combo);
             }
 
-            AgentAction::Scroll { amount, horizontal } => {
+            AgentAction::Scroll { amount, horizontal, mark_id, x, y, modifiers } => {
                 let is_horiz = horizontal.unwrap_or(false);
-                mouse::scroll(amount, is_horiz)?;
+                let mods = modifiers.unwrap_or_default();
+                let target_pt = if let Some(mid) = mark_id {
+                    if self.last_som.is_none() {
+                        let _ = self.observe();
+                    }
+                    self.last_som.as_ref().and_then(|s| s.find_by_mark(mid)).map(|e| e.center)
+                } else if let (Some(px), Some(py)) = (x, y) {
+                    Some(Point { x: px, y: py })
+                } else {
+                    None
+                };
+                mouse::scroll_at(amount, is_horiz, target_pt, &mods)?;
                 message = format!("Scrolled amount: {} (horizontal: {})", amount, is_horiz);
             }
 
-            AgentAction::DragRel { from_x, from_y, to_x, to_y } => {
+            AgentAction::DragRel { from_x, from_y, to_x, to_y, modifiers } => {
                 if let Some(ref som) = self.last_som {
                     let r = som.window_rect;
                     let p1 = Point {
@@ -362,7 +575,8 @@ impl AgentEnvironment {
                         x: r.x + ((r.width as f64) * to_x.clamp(0.0, 1.0)).round() as i32,
                         y: r.y + ((r.height as f64) * to_y.clamp(0.0, 1.0)).round() as i32,
                     };
-                    mouse::drag(p1, p2, MouseButton::Left)?;
+                    let mods = modifiers.unwrap_or_default();
+                    mouse::drag_modified(p1, p2, MouseButton::Left, &mods)?;
                     message = format!("Dragged from ({:.2}, {:.2}) to ({:.2}, {:.2})", from_x, from_y, to_x, to_y);
                 } else {
                     return Err(CuError::Internal("No active window to calculate drag coordinates".into()));
@@ -391,6 +605,19 @@ impl AgentEnvironment {
                 return Ok(StepResult {
                     success: true,
                     message: format!("Reactively settled in {} ms: {}", elapsed, delta.summary),
+                    is_terminal: false,
+                    observation: new_obs,
+                    delta,
+                });
+            }
+
+            AgentAction::WaitForText { text, timeout_ms } => {
+                let t = timeout_ms.unwrap_or(3000);
+                let (new_obs, elapsed) = self.wait_for_text(&text, t)?;
+                let delta = Self::compute_delta(prev_hwnd, &prev_title, prev_marks, &new_obs);
+                return Ok(StepResult {
+                    success: true,
+                    message: format!("Found text '{}' after {} ms", text, elapsed),
                     is_terminal: false,
                     observation: new_obs,
                     delta,
@@ -478,13 +705,57 @@ impl AgentAction {
         }
 
         if let Some(obj) = val.as_object() {
+            let parse_mods = |o: &serde_json::Map<String, serde_json::Value>| -> Option<Vec<String>> {
+                o.get("modifiers").and_then(|v| v.as_array()).map(|arr| {
+                    arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect()
+                })
+            };
             // Handle {"type": "..."} or {"action": "..."} with shorthand names
             if let Some(tag) = obj.get("action").or_else(|| obj.get("type")).and_then(|v| v.as_str()) {
                 let norm = tag.to_lowercase().replace('-', "_");
                 match norm.as_str() {
                     "click_mark" | "clickmark" => {
                         let mark_id = obj.get("mark_id").or_else(|| obj.get("id")).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                        return Ok(AgentAction::ClickMark { mark_id });
+                        return Ok(AgentAction::ClickMark { mark_id, modifiers: parse_mods(obj) });
+                    }
+                    "double_click_mark" | "doubleclickmark" => {
+                        let mark_id = obj.get("mark_id").or_else(|| obj.get("id")).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        return Ok(AgentAction::DoubleClickMark { mark_id });
+                    }
+                    "triple_click" | "tripleclick" | "triple_click_mark" => {
+                        let mark_id = obj.get("mark_id").or_else(|| obj.get("id")).and_then(|v| v.as_u64()).map(|v| v as usize);
+                        let x = obj.get("x").and_then(|v| v.as_i64()).map(|v| v as i32);
+                        let y = obj.get("y").and_then(|v| v.as_i64()).map(|v| v as i32);
+                        return Ok(AgentAction::TripleClick { mark_id, x, y });
+                    }
+                    "right_click_mark" | "rightclickmark" => {
+                        let mark_id = obj.get("mark_id").or_else(|| obj.get("id")).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        return Ok(AgentAction::RightClickMark { mark_id });
+                    }
+                    "hover_mark" | "hovermark" => {
+                        let mark_id = obj.get("mark_id").or_else(|| obj.get("id")).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        return Ok(AgentAction::HoverMark { mark_id });
+                    }
+                    "drag_mark_to_mark" | "dragmarktomark" | "drag_mark" => {
+                        let from_mark = obj.get("from_mark").or_else(|| obj.get("from")).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        let to_mark = obj.get("to_mark").or_else(|| obj.get("to")).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        return Ok(AgentAction::DragMarkToMark { from_mark, to_mark, modifiers: parse_mods(obj) });
+                    }
+                    "fill_mark" | "fillmark" | "fill" => {
+                        let mark_id = obj.get("mark_id").or_else(|| obj.get("id")).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        let text = obj.get("text").or_else(|| obj.get("value")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let clear = obj.get("clear").and_then(|v| v.as_bool());
+                        let submit = obj.get("submit").and_then(|v| v.as_bool());
+                        return Ok(AgentAction::FillMark { mark_id, text, clear, submit });
+                    }
+                    "paste_text" | "pastetext" | "paste" => {
+                        let text = obj.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        return Ok(AgentAction::PasteText { text });
+                    }
+                    "wait_for_text" | "waitfortext" => {
+                        let text = obj.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let timeout_ms = obj.get("timeout_ms").or_else(|| obj.get("ms")).and_then(|v| v.as_u64());
+                        return Ok(AgentAction::WaitForText { text, timeout_ms });
                     }
                     "click_name" | "clickname" => {
                         let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -493,12 +764,12 @@ impl AgentAction {
                     "click_rel" | "clickrel" => {
                         let x = obj.get("x").and_then(|v| v.as_f64()).unwrap_or(0.5);
                         let y = obj.get("y").and_then(|v| v.as_f64()).unwrap_or(0.5);
-                        return Ok(AgentAction::ClickRel { x, y, button: None });
+                        return Ok(AgentAction::ClickRel { x, y, button: None, modifiers: parse_mods(obj) });
                     }
                     "click_coords" | "clickcoords" | "click" => {
                         let x = obj.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
                         let y = obj.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-                        return Ok(AgentAction::ClickCoords { x, y, button: None });
+                        return Ok(AgentAction::ClickCoords { x, y, button: None, modifiers: parse_mods(obj) });
                     }
                     "type_text" | "typetext" | "type" => {
                         let text = obj.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -520,7 +791,10 @@ impl AgentAction {
                     "scroll" => {
                         let amount = obj.get("amount").and_then(|v| v.as_i64()).unwrap_or(-350) as i32;
                         let horizontal = obj.get("horizontal").and_then(|v| v.as_bool());
-                        return Ok(AgentAction::Scroll { amount, horizontal });
+                        let mark_id = obj.get("mark_id").and_then(|v| v.as_u64()).map(|v| v as usize);
+                        let x = obj.get("x").and_then(|v| v.as_i64()).map(|v| v as i32);
+                        let y = obj.get("y").and_then(|v| v.as_i64()).map(|v| v as i32);
+                        return Ok(AgentAction::Scroll { amount, horizontal, mark_id, x, y, modifiers: parse_mods(obj) });
                     }
                     "focus_window" | "focuswindow" | "focus" => {
                         let title = obj.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();

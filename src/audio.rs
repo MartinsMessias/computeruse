@@ -5,21 +5,34 @@ use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
 };
 
-struct ComGuard;
+struct ComGuard {
+    should_uninit: bool,
+}
 impl ComGuard {
     fn new() -> Self {
-        unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        }
-        ComGuard
+        let should_uninit = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).is_ok() };
+        ComGuard { should_uninit }
     }
 }
 impl Drop for ComGuard {
     fn drop(&mut self) {
-        unsafe {
-            CoUninitialize();
+        if self.should_uninit {
+            unsafe {
+                CoUninitialize();
+            }
         }
     }
+}
+
+/// Emit a native Win32 hardware/system tone without spawning external processes.
+pub fn beep(freq_hz: u32, duration_ms: u32) -> Result<()> {
+    windows::core::link!("kernel32.dll" "system" fn Beep(dwfreq: u32, dwduration: u32) -> windows::core::BOOL);
+    let freq = freq_hz.clamp(37, 32767);
+    let dur = duration_ms.clamp(1, 10000);
+    unsafe {
+        let _ = Beep(freq, dur);
+    }
+    Ok(())
 }
 
 fn get_endpoint_volume() -> Result<IAudioEndpointVolume> {

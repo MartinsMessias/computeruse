@@ -55,8 +55,9 @@ pub fn find_process(name_contains: &str) -> Result<ProcessInfo> {
 pub fn kill_process(pid: u32) -> Result<()> {
     unsafe {
         let handle = OpenProcess(PROCESS_TERMINATE, false, pid)?;
-        TerminateProcess(handle, 1)?;
+        let res = TerminateProcess(handle, 1);
         let _ = CloseHandle(handle);
+        res?;
     }
     Ok(())
 }

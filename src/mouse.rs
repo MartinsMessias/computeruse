@@ -122,6 +122,75 @@ pub fn double_click(btn: MouseButton, p: Option<Point>) -> Result<()> {
     Ok(())
 }
 
+/// Triple-click at an optional point (or current cursor position) to select an entire line or paragraph like a human.
+pub fn triple_click(btn: MouseButton, p: Option<Point>) -> Result<()> {
+    click(btn, p)?;
+    std::thread::sleep(std::time::Duration::from_millis(70));
+    click(btn, None)?;
+    std::thread::sleep(std::time::Duration::from_millis(70));
+    click(btn, None)?;
+    Ok(())
+}
+
+/// Smoothly glide the cursor from its current position to `to` using a cubic ease-in-out human trajectory over `duration_ms`.
+/// Essential for triggering `:hover` menus, tooltips, and canvas scrubbers that ignore teleported cursors.
+pub fn move_smooth(to: Point, duration_ms: u64) -> Result<()> {
+    let from = cursor_position().unwrap_or(to);
+    let dx = (to.x - from.x) as f64;
+    let dy = (to.y - from.y) as f64;
+    let dist = (dx * dx + dy * dy).sqrt();
+    if dist < 2.0 || duration_ms == 0 {
+        return move_to(to);
+    }
+    let steps = ((duration_ms / 8).clamp(6, 60)) as usize;
+    let step_sleep = (duration_ms / (steps as u64)).max(2);
+    for i in 1..=steps {
+        let t = (i as f64) / (steps as f64);
+        // Cubic ease-in-out: 3t^2 - 2t^3
+        let ease = t * t * (3.0 - 2.0 * t);
+        let x = (from.x as f64 + dx * ease).round() as i32;
+        let y = (from.y as f64 + dy * ease).round() as i32;
+        move_to(Point { x, y })?;
+        std::thread::sleep(std::time::Duration::from_millis(step_sleep));
+    }
+    Ok(())
+}
+
+/// Click while holding keyboard modifiers (e.g. `["ctrl"]`, `["shift"]`, `["alt"]`).
+pub fn click_modified(btn: MouseButton, p: Option<Point>, modifiers: &[String]) -> Result<()> {
+    if modifiers.is_empty() {
+        return click(btn, p);
+    }
+    if let Some(pt) = p {
+        move_to(pt)?;
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    crate::keyboard::with_modifiers(modifiers, || click(btn, None))
+}
+
+/// Drag while holding keyboard modifiers (e.g. `Shift+Drag` for proportional resize/straight line, `Alt+Drag` to duplicate).
+pub fn drag_modified(from: Point, to: Point, btn: MouseButton, modifiers: &[String]) -> Result<()> {
+    if modifiers.is_empty() {
+        return drag(from, to, btn);
+    }
+    move_to(from)?;
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    crate::keyboard::with_modifiers(modifiers, || drag(from, to, btn))
+}
+
+/// Scroll at a specific `(x, y)` target (moving the cursor there first if provided) with optional keyboard modifiers (e.g. `Ctrl+Scroll` to zoom).
+pub fn scroll_at(amount: i32, horizontal: bool, p: Option<Point>, modifiers: &[String]) -> Result<()> {
+    if let Some(pt) = p {
+        move_to(pt)?;
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    if modifiers.is_empty() {
+        scroll(amount, horizontal)
+    } else {
+        crate::keyboard::with_modifiers(modifiers, || scroll(amount, horizontal))
+    }
+}
+
 pub fn mouse_down(btn: MouseButton) -> Result<()> {
     let cur = cursor_position().unwrap_or(Point { x: 0, y: 0 });
     let (norm_x, norm_y) = normalized_virtual_coords(cur);

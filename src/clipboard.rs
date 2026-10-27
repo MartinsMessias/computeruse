@@ -82,3 +82,51 @@ pub fn set_text(text: &str) -> Result<()> {
         Ok(())
     }
 }
+
+/// Copies a Screen Region (`Rect`) directly onto the Windows Clipboard as a native `CF_BITMAP` image so the agent can `Ctrl+V` paste visual selections into any app (Paint, Word, Discord, Browsers, Slides).
+pub fn set_image_from_region(region: crate::types::Rect) -> Result<()> {
+    use windows::Win32::Graphics::Gdi::{
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
+        ReleaseDC, SelectObject, SRCCOPY,
+    };
+    const CF_BITMAP: u32 = 2;
+    let _ = crate::desktop::attach_thread_to_input_desktop();
+    unsafe {
+        let hdc_screen = GetDC(None);
+        if hdc_screen.is_invalid() {
+            return Err(CuError::Windows("GetDC failed".into()));
+        }
+        let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
+        let hbmp = CreateCompatibleBitmap(hdc_screen, region.width.max(1) as i32, region.height.max(1) as i32);
+        let old = SelectObject(hdc_mem, hbmp.into());
+        let ok = BitBlt(
+            hdc_mem,
+            0,
+            0,
+            region.width.max(1) as i32,
+            region.height.max(1) as i32,
+            Some(hdc_screen),
+            region.x,
+            region.y,
+            SRCCOPY,
+        );
+        SelectObject(hdc_mem, old);
+        let _ = DeleteDC(hdc_mem).as_bool();
+        ReleaseDC(None, hdc_screen);
+
+        if ok.is_err() {
+            let _ = DeleteObject(hbmp.into()).as_bool();
+            return Err(CuError::Windows("BitBlt for clipboard image failed".into()));
+        }
+
+        let _guard = ClipboardGuard::open()?;
+        EmptyClipboard()?;
+        let h = windows::Win32::Foundation::HANDLE(hbmp.0);
+        if SetClipboardData(CF_BITMAP, Some(h)).is_err() {
+            let _ = DeleteObject(hbmp.into()).as_bool();
+            return Err(CuError::Clipboard("SetClipboardData(CF_BITMAP) failed".into()));
+        }
+        // Once SetClipboardData succeeds, the OS owns hbmp; do not DeleteObject it.
+        Ok(())
+    }
+}

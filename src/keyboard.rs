@@ -16,14 +16,29 @@ fn send_key(inp: INPUT) -> Result<()> {
     Ok(())
 }
 
-fn make_keyboard_input(vk: u16, scan: u16, flags: u32) -> INPUT {
+pub fn make_keyboard_input(vk: u16, scan: u16, flags: u32) -> INPUT {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        MapVirtualKeyW, KEYEVENTF_EXTENDEDKEY, MAPVK_VK_TO_VSC,
+    };
+    let mut final_scan = scan;
+    let mut final_flags = flags;
+    if vk != 0 && final_scan == 0 {
+        final_scan = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) as u16 };
+        // Navigation, Insert/Delete, Divide, and Win keys require KEYEVENTF_EXTENDEDKEY for DirectInput / RawInput apps
+        if matches!(
+            vk,
+            0x21..=0x28 | 0x2D | 0x2E | 0x5B | 0x5C | 0x5D | 0x6F | 0x90 | 0xA3 | 0xA5
+        ) {
+            final_flags |= KEYEVENTF_EXTENDEDKEY.0;
+        }
+    }
     INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
                 wVk: VIRTUAL_KEY(vk),
-                wScan: scan,
-                dwFlags: windows::Win32::UI::Input::KeyboardAndMouse::KEYBD_EVENT_FLAGS(flags),
+                wScan: final_scan,
+                dwFlags: windows::Win32::UI::Input::KeyboardAndMouse::KEYBD_EVENT_FLAGS(final_flags),
                 time: 0,
                 dwExtraInfo: 0,
             },
@@ -205,4 +220,49 @@ pub fn hotkey(keys: &[String]) -> Result<()> {
 pub fn combo_str(s: &str) -> Result<()> {
     let parts: Vec<String> = s.split('+').map(|x| x.trim().to_string()).collect();
     hotkey(&parts)
+}
+
+/// Hold modifier keys (`ctrl`, `shift`, `alt`, `win`) while executing an arbitrary closure (e.g. modified click, drag, or scroll),
+/// guaranteeing modifier release even if the closure returns an error.
+pub fn with_modifiers<F, R>(modifiers: &[String], f: F) -> Result<R>
+where
+    F: FnOnce() -> Result<R>,
+{
+    let mut resolved: Vec<u16> = Vec::new();
+    for k in modifiers {
+        let vk = resolve_vk(k).ok_or_else(|| CuError::InvalidArg(format!("unknown modifier key: {}", k)))?;
+        resolved.push(vk);
+    }
+    for &vk in &resolved {
+        send_key(make_keyboard_input(vk, 0, 0))?;
+        std::thread::sleep(std::time::Duration::from_millis(12));
+    }
+    let res = f();
+    for &vk in resolved.iter().rev() {
+        let _ = send_key(make_keyboard_input(vk, 0, KEYEVENTF_KEYUP.0));
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    res
+}
+
+/// Copies the current selection (`Ctrl+C`) while preserving the user's previous clipboard contents, returning the newly selected text.
+pub fn copy_selection() -> Result<String> {
+    let prev = crate::clipboard::get_text().ok();
+    let _ = crate::clipboard::set_text("");
+    std::thread::sleep(std::time::Duration::from_millis(15));
+    combo_str("ctrl+c")?;
+    let mut copied = String::new();
+    for _ in 0..8 {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        if let Ok(t) = crate::clipboard::get_text() {
+            if !t.is_empty() {
+                copied = t;
+                break;
+            }
+        }
+    }
+    if let Some(old) = prev {
+        let _ = crate::clipboard::set_text(&old);
+    }
+    Ok(copied)
 }

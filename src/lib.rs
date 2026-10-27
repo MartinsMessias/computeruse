@@ -58,18 +58,24 @@ impl ComputerUse {
 
     // Mouse
     pub fn mouse_move(p: Point) -> Result<()> { mouse::move_to(p) }
+    pub fn mouse_move_smooth(p: Point, duration_ms: u64) -> Result<()> { mouse::move_smooth(p, duration_ms) }
     pub fn mouse_move_relative(dx: i32, dy: i32) -> Result<Point> { mouse::move_relative(dx, dy) }
     pub fn click(btn: MouseButton, p: Option<Point>) -> Result<()> { mouse::click(btn, p) }
+    pub fn click_modified(btn: MouseButton, p: Option<Point>, modifiers: &[String]) -> Result<()> { mouse::click_modified(btn, p, modifiers) }
     pub fn double_click(btn: MouseButton, p: Option<Point>) -> Result<()> { mouse::double_click(btn, p) }
+    pub fn triple_click(btn: MouseButton, p: Option<Point>) -> Result<()> { mouse::triple_click(btn, p) }
     pub fn mouse_down(btn: MouseButton) -> Result<()> { mouse::mouse_down(btn) }
     pub fn mouse_up(btn: MouseButton) -> Result<()> { mouse::mouse_up(btn) }
     pub fn drag(from: Point, to: Point, btn: MouseButton) -> Result<()> { mouse::drag(from, to, btn) }
+    pub fn drag_modified(from: Point, to: Point, btn: MouseButton, modifiers: &[String]) -> Result<()> { mouse::drag_modified(from, to, btn, modifiers) }
     pub fn scroll(amount: i32, horizontal: bool) -> Result<()> { mouse::scroll(amount, horizontal) }
+    pub fn scroll_at(amount: i32, horizontal: bool, p: Option<Point>, modifiers: &[String]) -> Result<()> { mouse::scroll_at(amount, horizontal, p, modifiers) }
 
     // Keyboard
     pub fn type_text(text: &str) -> Result<()> { keyboard::type_text(text) }
     pub fn type_text_with_delay(text: &str, delay_ms: u64) -> Result<()> { keyboard::type_text_with_delay(text, delay_ms) }
     pub fn paste_text(text: &str) -> Result<()> { keyboard::paste_text(text) }
+    pub fn copy_selection() -> Result<String> { keyboard::copy_selection() }
     pub fn key_press(name: &str) -> Result<()> { keyboard::key_press(name) }
     pub fn key_down(name: &str) -> Result<()> { keyboard::key_down(name) }
     pub fn key_up(name: &str) -> Result<()> { keyboard::key_up(name) }
@@ -116,6 +122,7 @@ impl ComputerUse {
     // Clipboard
     pub fn clipboard_get() -> Result<String> { clipboard::get_text() }
     pub fn clipboard_set(text: &str) -> Result<()> { clipboard::set_text(text) }
+    pub fn clipboard_set_image_from_region(region: Rect) -> Result<()> { clipboard::set_image_from_region(region) }
     // Pixel
     pub fn get_pixel(p: Point) -> Result<(u8, u8, u8)> { pixel::get_pixel(p) }
     pub fn find_color_in_region(region: Rect, target_rgb: (u8, u8, u8), tolerance: u8) -> Result<Option<Point>> {
@@ -146,6 +153,7 @@ impl ComputerUse {
     pub fn audio_get_mute() -> Result<bool> { audio::get_mute() }
     pub fn audio_set_mute(muted: bool) -> Result<()> { audio::set_mute(muted) }
     pub fn audio_toggle_mute() -> Result<bool> { audio::toggle_mute() }
+    pub fn audio_beep(freq_hz: u32, duration_ms: u32) -> Result<()> { audio::beep(freq_hz, duration_ms) }
 
     // System
     pub fn system_info() -> Result<SystemInfo> { system::get_system_info() }

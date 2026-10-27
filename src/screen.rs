@@ -24,7 +24,6 @@ pub fn screen_size() -> Result<(u32, u32)> {
 pub fn list_monitors() -> Result<Vec<Monitor>> {
     unsafe {
         let mut monitors: Vec<Monitor> = Vec::new();
-        // Use a raw pointer to pass mutable vec into callback
         let ptr = &mut monitors as *mut Vec<Monitor>;
         unsafe extern "system" fn cb(hmon: HMONITOR, _hdc: HDC, _lprect: *mut RECT, lparam: LPARAM) -> windows::core::BOOL {
             let monitors = &mut *(lparam.0 as *mut Vec<Monitor>);
@@ -108,16 +107,15 @@ pub fn screenshot_region(region: Rect, monitor: Option<u32>) -> Result<Screensho
             region.y,
             SRCCOPY,
         );
+        // Deselect hbmp before GetDIBits or cleanup per Win32 GDI spec
+        SelectObject(hdc_mem, old);
         if ok.is_err() {
-            // cleanup
-            SelectObject(hdc_mem, old);
             let _ = DeleteObject(hbmp.into()).as_bool();
             let _ = DeleteDC(hdc_mem).as_bool();
             ReleaseDC(None, hdc_screen);
             return Err(CuError::Windows(format!("BitBlt failed: {:?}", ok.err())));
         }
 
-        // Extract DIB
         let mut bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
@@ -140,8 +138,6 @@ pub fn screenshot_region(region: Rect, monitor: Option<u32>) -> Result<Screensho
             &mut bmi,
             DIB_RGB_COLORS,
         );
-        // cleanup
-        SelectObject(hdc_mem, old);
         let _ = DeleteObject(hbmp.into()).as_bool();
         let _ = DeleteDC(hdc_mem).as_bool();
         ReleaseDC(None, hdc_screen);
@@ -182,20 +178,13 @@ pub fn screenshot_region(region: Rect, monitor: Option<u32>) -> Result<Screensho
 }
 
 pub fn screenshot_window(hwnd: isize) -> Result<Screenshot> {
-    // find the window to get its rect
-    let w = crate::window::find_window_by_hwnd(hwnd)
-        .or_else(|_| {
-            // build a minimal WindowInfo by enumerating
-            crate::window::list_windows(false)?
-                .into_iter()
-                .find(|x| x.hwnd == hwnd)
-                .ok_or_else(|| CuError::NotFound(format!("hwnd {}", hwnd)))
-        })?;
+    let w = crate::window::find_window_by_hwnd(hwnd)?;
     screenshot_region(w.rect, None)
 }
+
 pub fn screenshot_active_window() -> Result<Screenshot> {
     let w = crate::window::foreground_window()?;
-    screenshot_window(w.hwnd)
+    screenshot_region(w.rect, None)
 }
 
 pub fn screenshot_all_monitors() -> Result<Screenshot> {
@@ -203,7 +192,6 @@ pub fn screenshot_all_monitors() -> Result<Screenshot> {
     if monitors.is_empty() {
         return Err(CuError::NotFound("no monitors".into()));
     }
-    // compute bounding box
     let mut min_x = i32::MAX;
     let mut min_y = i32::MAX;
     let mut max_x = i32::MIN;
@@ -222,6 +210,7 @@ pub fn screenshot_all_monitors() -> Result<Screenshot> {
     };
     screenshot_region(region, None)
 }
+
 pub fn cursor_position() -> Result<Point> {
     let _ = crate::desktop::attach_thread_to_input_desktop();
     use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
@@ -241,6 +230,5 @@ pub fn set_cursor_position(p: Point) -> Result<()> {
     Ok(())
 }
 
-// avoid unused import warning
 #[allow(dead_code)]
 fn _use_ptr() { let _ = ptr::null::<i32>(); }

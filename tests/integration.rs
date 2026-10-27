@@ -184,7 +184,7 @@ fn pillar2_flexible_batch_action_parsing() {
 
     assert!(matches!(AgentAction::from_flexible_json(&a1).unwrap(), AgentAction::ClickName { ref name } if name == "File"));
     assert!(matches!(AgentAction::from_flexible_json(&a2).unwrap(), AgentAction::TypeText { ref text } if text == "Hello World"));
-    assert!(matches!(AgentAction::from_flexible_json(&a3).unwrap(), AgentAction::ClickMark { mark_id: 7 }));
+    assert!(matches!(AgentAction::from_flexible_json(&a3).unwrap(), AgentAction::ClickMark { mark_id: 7, .. }));
     assert!(matches!(AgentAction::from_flexible_json(&a4).unwrap(), AgentAction::WaitForChange { timeout_ms: 500 }));
 }
 
@@ -233,4 +233,76 @@ fn pixel_visual_checksum_and_color_search() {
     let sample = ComputerUse::get_pixel(Point { x: 60, y: 60 }).unwrap();
     let found = ComputerUse::find_color_in_region(reg, sample, 5).unwrap();
     assert!(found.is_some());
+}
+
+#[test]
+fn window_lookup_o1_and_visible_priority() {
+    let fg = ComputerUse::foreground_window().unwrap();
+    let start = std::time::Instant::now();
+    let by_hwnd = computeruse::window::find_window_by_hwnd(fg.hwnd).unwrap();
+    let elapsed_us = start.elapsed().as_micros();
+    assert_eq!(by_hwnd.hwnd, fg.hwnd);
+    // O(1) lookup should complete in well under 5,000 microseconds (5ms)
+    assert!(elapsed_us < 5000, "find_window_by_hwnd took {}us", elapsed_us);
+    assert!(computeruse::window::find_window_by_hwnd(0).is_err());
+    assert!(computeruse::window::find_window_by_hwnd(-99999999).is_err());
+}
+
+#[test]
+fn audio_com_guard_and_beep_safety() {
+    // Call audio volume multiple times on the same thread after UIA has initialized COM
+    let _ = ComputerUse::uia_focused_element();
+    let vol1 = ComputerUse::audio_get_volume().unwrap();
+    let vol2 = ComputerUse::audio_get_volume().unwrap();
+    assert_eq!(vol1, vol2);
+    // Ensure UIA still works afterwards (ComGuard didn't tear down UIA's COM apartment!)
+    assert!(ComputerUse::uia_focused_element().is_ok());
+}
+
+#[test]
+fn agent_high_leverage_actions_parsing_and_wait_for_text() {
+    let f1 = serde_json::json!({"type": "fill_mark", "mark_id": 3, "text": "hello", "clear": true, "submit": true});
+    let f2 = serde_json::json!({"action": "right_click_mark", "mark_id": 5});
+    let f3 = serde_json::json!({"action": "hover_mark", "mark_id": 2});
+    let f4 = serde_json::json!({"type": "wait_for_text", "text": "Window", "timeout_ms": 500});
+
+    assert!(matches!(AgentAction::from_flexible_json(&f1).unwrap(), AgentAction::FillMark { mark_id: 3, ref text, clear: Some(true), submit: Some(true) } if text == "hello"));
+    assert!(matches!(AgentAction::from_flexible_json(&f2).unwrap(), AgentAction::RightClickMark { mark_id: 5 }));
+    assert!(matches!(AgentAction::from_flexible_json(&f3).unwrap(), AgentAction::HoverMark { mark_id: 2 }));
+    assert!(matches!(AgentAction::from_flexible_json(&f4).unwrap(), AgentAction::WaitForText { ref text, timeout_ms: Some(500) } if text == "Window"));
+
+    // Test wait_for_text against the active foreground window's own title
+    let fg = ComputerUse::foreground_window().unwrap();
+    if !fg.title.is_empty() {
+        let mut env = AgentEnvironment::new().with_settle_delay(10);
+        let token: String = fg.title.chars().take(4).collect();
+        let (obs, elapsed) = env.wait_for_text(&token, 500).unwrap();
+        assert!(elapsed < 500);
+        assert!(!obs.window_title.is_empty());
+    }
+}
+
+#[test]
+fn human_parity_scancodes_modifiers_and_image_clipboard() {
+    // 1. Hardware scancode + ExtendedKey bit verification
+    let up_inp = computeruse::keyboard::make_keyboard_input(0x26, 0, 0); // VK_UP
+    unsafe {
+        assert!(up_inp.Anonymous.ki.wScan != 0, "Hardware scancode must be populated");
+        assert!((up_inp.Anonymous.ki.dwFlags.0 & 1) != 0, "KEYEVENTF_EXTENDEDKEY must be set for arrow keys");
+    }
+
+    // 2. Modified Click / DragMarkToMark / TripleClick JSON parsing
+    let m1 = serde_json::json!({"type": "click_mark", "mark_id": 4, "modifiers": ["ctrl", "shift"]});
+    let m2 = serde_json::json!({"type": "drag_mark_to_mark", "from_mark": 1, "to_mark": 9, "modifiers": ["alt"]});
+    let m3 = serde_json::json!({"type": "triple_click", "mark_id": 2});
+    assert!(matches!(AgentAction::from_flexible_json(&m1).unwrap(), AgentAction::ClickMark { mark_id: 4, modifiers: Some(ref mods) } if mods.len() == 2));
+    assert!(matches!(AgentAction::from_flexible_json(&m2).unwrap(), AgentAction::DragMarkToMark { from_mark: 1, to_mark: 9, modifiers: Some(ref mods) } if mods[0] == "alt"));
+    assert!(matches!(AgentAction::from_flexible_json(&m3).unwrap(), AgentAction::TripleClick { mark_id: Some(2), .. }));
+
+    // 3. Visual Image Clipboard (CF_BITMAP) + text restoration
+    let prev_txt = ComputerUse::clipboard_get().ok();
+    ComputerUse::clipboard_set_image_from_region(Rect { x: 10, y: 10, width: 64, height: 64 }).unwrap();
+    if let Some(old) = prev_txt {
+        let _ = ComputerUse::clipboard_set(&old);
+    }
 }
