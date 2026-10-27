@@ -411,4 +411,13 @@ impl DynamicCanvas {
         }
         Ok(())
     }
+
+    /// Renders an array of normalized (rx, ry) points as isolated pointillist stipple dots.
+    pub fn stroke_dots(&self, points: &[(f64, f64)], dot_radius: i32) -> Result<()> {
+        if points.is_empty() {
+            return Ok(());
+        }
+        let screen_pts: Vec<Point> = points.iter().map(|&(rx, ry)| self.pt(rx, ry)).collect();
+        mouse::stipple_points(&screen_pts, dot_radius, MouseButton::Left)
+    }
 }

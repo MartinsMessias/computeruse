@@ -92,6 +92,18 @@ pub fn resolve_vk(name: &str) -> Option<u16> {
         "medianext" | "nexttrack" | "next_track" => Some(0xB0),
         "mediaprev" | "prevtrack" | "prev_track" => Some(0xB1),
         "mediastop" | "stoptrack" => Some(0xB2),
+        "+" | "plus" | "=" | "equals" => Some(0xBB),
+        "-" | "minus" | "hyphen" | "_" => Some(0xBD),
+        "," | "comma" | "<" => Some(0xBC),
+        "." | "period" | "dot" | ">" => Some(0xBE),
+        "/" | "slash" | "?" => Some(0xBF),
+        ";" | "semicolon" | ":" => Some(0xBA),
+        "'" | "quote" | "\"" => Some(0xDE),
+        "[" | "lbracket" | "{" => Some(0xDB),
+        "]" | "rbracket" | "}" => Some(0xDD),
+        "\\" | "backslash" | "|" => Some(0xDC),
+        "`" | "backtick" | "tilde" | "~" => Some(0xC0),
+        "apps" | "contextmenu" | "menu" => Some(0x5D),
         _ => None,
     }
 }
@@ -104,18 +116,47 @@ pub fn is_modifier(name: &str) -> bool {
 }
 
 pub fn type_text(text: &str) -> Result<()> {
-    type_text_with_delay(text, 25)
+    type_text_with_delay(text, 6)
 }
 
 pub fn type_text_with_delay(text: &str, delay_ms: u64) -> Result<()> {
+    let mut utf16_buf = [0u16; 2];
+    let wait = delay_ms.max(2);
     for ch in text.chars() {
-        let scan = ch as u16;
-        let down = make_keyboard_input(0, scan, KEYEVENTF_UNICODE.0);
-        let up = make_keyboard_input(0, scan, KEYEVENTF_UNICODE.0 | KEYEVENTF_KEYUP.0);
-        send_key(down)?;
-        std::thread::sleep(std::time::Duration::from_millis(delay_ms.max(5)));
-        send_key(up)?;
-        std::thread::sleep(std::time::Duration::from_millis(delay_ms.max(5)));
+        match ch {
+            '\r' => continue,
+            '\n' => {
+                key_press("enter")?;
+                std::thread::sleep(std::time::Duration::from_millis(wait));
+            }
+            '\t' => {
+                key_press("tab")?;
+                std::thread::sleep(std::time::Duration::from_millis(wait));
+            }
+            _ => {
+                for &mut scan in ch.encode_utf16(&mut utf16_buf) {
+                    let down = make_keyboard_input(0, scan, KEYEVENTF_UNICODE.0);
+                    let up = make_keyboard_input(0, scan, KEYEVENTF_UNICODE.0 | KEYEVENTF_KEYUP.0);
+                    send_key(down)?;
+                    std::thread::sleep(std::time::Duration::from_millis(wait));
+                    send_key(up)?;
+                    std::thread::sleep(std::time::Duration::from_millis(wait));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Pastes text instantaneously via the Windows clipboard while preserving the user's previous clipboard contents.
+pub fn paste_text(text: &str) -> Result<()> {
+    let prev = crate::clipboard::get_text().ok();
+    crate::clipboard::set_text(text)?;
+    std::thread::sleep(std::time::Duration::from_millis(15));
+    combo_str("ctrl+v")?;
+    std::thread::sleep(std::time::Duration::from_millis(45));
+    if let Some(old) = prev {
+        let _ = crate::clipboard::set_text(&old);
     }
     Ok(())
 }

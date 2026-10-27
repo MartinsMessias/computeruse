@@ -9,12 +9,14 @@ Instead of relying on slow, lossy 4K screenshot-to-pixel guessing loops, `comput
 ## Architecture: The 4 Pillars of OS-Native Symbiosis
 
 ### 1. Pillar I — Hybrid Sub-Token Perception & Targeted Visual Crop
-- **Categorized Set-of-Marks (`cu_observe`)**: Traverses the Windows UI Automation (UIA) tree in milliseconds and compresses hundreds of elements into a `< 1.8 KB` categorized semantic digest (`Tools/Buttons`, `Palette/Items`, `Inputs/Controls`, `Menus/Other`) with smart 35-char truncation for passive items. Pass `verbose: true` only when raw bounding boxes are needed.
-- **Targeted Visual Crops (`cu_screenshot`)**: When visual verification is required, crop directly to a specific UI element (`mark_id`), only the drawing canvas (`canvas_only: true`), or a custom rectangle (`region: {x, y, width, height}`), with optional direct disk output (`save_path`, `omit_base64: true`).
+- **Categorized Set-of-Marks (`cu_observe`)**: Traverses the Windows UI Automation (UIA) tree in milliseconds, filters out off-screen artifacts, extracts live values from inputs/sliders (`ValueValue` / `LegacyIAccessibleValue`), and compresses hundreds of elements into a `< 1.8 KB` categorized semantic digest (`Tools/Buttons`, `Palette/Items`, `Inputs/Controls`, `Menus/Other`). Pass `verbose: true` only when raw bounding boxes are needed.
+- **Direct Window Text Extraction (`cu_read_window_text`)**: Extracts all visible text strings, labels, and control values from any window in milliseconds without OCR or screenshots.
+- **Targeted Visual Crops & Annotated Badges (`cu_screenshot`)**: Crop directly to a specific UI element (`mark_id`), only the drawing canvas (`canvas_only: true`), or a custom rectangle (`region: {x, y, width, height}`), overlay numbered Set-of-Marks `[ID]` badges (`annotate_marks: true`), and save directly to disk (`save_path`, `omit_base64: true`).
 
 ### 2. Pillar II — Atomic Transactions & Vector Macro-JIT
 - **Zero-Roundtrip Action Pipelines (`cu_batch`)**: Execute multi-step workflows (`click_mark`, `click_name`, `type`, `key`, `hotkey`, `scroll`, `focus_window`, `wait`, `wait_for_change`) in a single atomic call and receive the post-transaction `prompt_summary` and `ui_delta` immediately. Accepts flexible JSON schemas (`{"action": "..."}`, `{"type": "..."}`, or `{"ClickName": {...}}`).
-- **Parametric Vector Canvas Engine (`cu_canvas_draw`)**: Automatically detects the exact drawing surface (`DynamicCanvas`) inside apps like Windows 11 Paint and renders multi-layered geometric primitives (`gear`, `star`, `polygon`, `circle`, `spiral`, `line`, `rect`, `bezier`, `text`) with aspect-ratio compensation, WinUI3 Ribbon focus-recovery, and automatic closed-shape first-edge sealing.
+- **Parametric Vector & Pointillist Canvas Engine (`cu_canvas_draw`)**: Automatically detects the exact drawing surface (`DynamicCanvas`) and renders multi-layered geometric primitives (`gear`, `star`, `polygon`, `circle`, `spiral`, `line`, `rect`, `bezier`, `text`, `dots`/`points`) with aspect-ratio compensation, WinUI3 Ribbon focus-recovery, and automatic closed-shape first-edge sealing.
+- **UTF-16 Surrogate & Instant Clipboard Typing (`cu_type`)**: Full UTF-16 surrogate pair support, automatic `\n`/`\t` virtual key translation, full OEM punctuation hotkey resolution (`+`, `-`, `=`, `/`, `[`, `]`, etc.), and non-destructive instant clipboard paste (`paste: true`).
 
 ### 3. Pillar III — Per-Monitor DPI v2 & Virtual Desktop Input Fidelity
 - **Per-Monitor DPI v2**: Automatically activates `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` (`enable_per_monitor_dpi_v2`) and attaches threads to the active input desktop (`OpenInputDesktop` / `SetThreadDesktop`).
@@ -42,7 +44,7 @@ cu mcp --sync
 
 | Category | Tools |
 |---|---|
-| **Perception & Visual** | `cu_observe`, `cu_screenshot`, `cu_inspect_element_at` |
+| **Perception & Visual** | `cu_observe`, `cu_read_window_text`, `cu_screenshot`, `cu_inspect_element_at` |
 | **Semantic & Mouse Input** | `cu_click_mark`, `cu_click_name`, `cu_click_rel`, `cu_click_coords`, `cu_double_click`, `cu_move`, `cu_drag`, `cu_drag_rel`, `cu_mouse_down`, `cu_mouse_up`, `cu_scroll` |
 | **Keyboard & Clipboard** | `cu_type`, `cu_key`, `cu_hotkey`, `cu_clipboard_get`, `cu_clipboard_set` |
 | **Atomic Batch & Reactive Sync** | `cu_batch`, `cu_wait_for_change` |

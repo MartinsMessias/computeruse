@@ -206,15 +206,23 @@ impl AgentEnvironment {
         }
     }
 
-    /// Reactively polls the OS foreground window and UIA tree until a change occurs or `timeout_ms` elapses.
-    /// Eliminates blind `sleep(2000)` waits by returning immediately as soon as a window/menu/popup appears.
+    /// Reactively polls the OS foreground window, UIA tree, and visual pixel checksum until a change occurs or `timeout_ms` elapses.
+    /// Eliminates blind `sleep(2000)` waits by returning immediately as soon as a window/menu/popup or visual update appears.
     pub fn wait_for_change(&mut self, timeout_ms: u64) -> Result<(UiDelta, Observation, u64)> {
         if self.last_som.is_none() {
             let _ = self.observe();
         }
-        let (base_hwnd, base_title, base_marks) = self.last_som.as_ref()
-            .map(|s| (s.hwnd, s.title.clone(), s.elements.len()))
-            .unwrap_or((0, String::new(), 0));
+        let (base_hwnd, base_title, base_marks, base_rect) = self.last_som.as_ref()
+            .map(|s| (s.hwnd, s.title.clone(), s.elements.len(), s.window_rect))
+            .unwrap_or((0, String::new(), 0, Rect { x: 0, y: 0, width: 256, height: 256 }));
+
+        let probe_rect = Rect {
+            x: base_rect.x + (base_rect.width as i32 / 4),
+            y: base_rect.y + (base_rect.height as i32 / 4),
+            width: (base_rect.width / 2).clamp(64, 512),
+            height: (base_rect.height / 2).clamp(64, 512),
+        };
+        let base_visual_hash = crate::pixel::region_visual_checksum(probe_rect).unwrap_or(0);
 
         let start = std::time::Instant::now();
         let timeout = Duration::from_millis(timeout_ms.max(25));
@@ -222,10 +230,15 @@ impl AgentEnvironment {
         loop {
             thread::sleep(Duration::from_millis(25));
             let obs = self.observe()?;
-            let delta = Self::compute_delta(base_hwnd, &base_title, base_marks, &obs);
+            let mut delta = Self::compute_delta(base_hwnd, &base_title, base_marks, &obs);
+            let cur_visual_hash = crate::pixel::region_visual_checksum(probe_rect).unwrap_or(base_visual_hash);
+            let visual_changed = base_visual_hash != 0 && cur_visual_hash != base_visual_hash;
+            if visual_changed && !delta.hwnd_changed && !delta.title_changed && delta.marks_delta == 0 {
+                delta.summary = "Visual canvas/pixel state updated".to_string();
+            }
             let elapsed = start.elapsed().as_millis() as u64;
 
-            if delta.hwnd_changed || delta.title_changed || delta.marks_delta != 0 || start.elapsed() >= timeout {
+            if delta.hwnd_changed || delta.title_changed || delta.marks_delta != 0 || visual_changed || start.elapsed() >= timeout {
                 return Ok((delta, obs, elapsed));
             }
         }

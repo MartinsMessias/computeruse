@@ -225,6 +225,56 @@ pub fn stroke_continuous(pts: &[Point], btn: MouseButton) -> Result<()> {
     Ok(())
 }
 
+/// Renders an array of isolated pointillist / stipple dots with zero connecting lines.
+/// Repeats the first dot once so Ribbon-to-Canvas focus handoff never drops a dot.
+pub fn stipple_points(pts: &[Point], dot_radius: i32, btn: MouseButton) -> Result<()> {
+    if pts.is_empty() {
+        return Ok(());
+    }
+    let r = dot_radius.clamp(2, 8);
+    let r_inner = (r / 2).max(1);
+
+    // Focus-activation tap on the first point so Ribbon focus is returned to the canvas
+    let first = pts[0];
+    move_to(first)?;
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    mouse_down(btn)?;
+    std::thread::sleep(std::time::Duration::from_millis(22));
+    move_to(Point { x: first.x + 2, y: first.y })?;
+    std::thread::sleep(std::time::Duration::from_millis(12));
+    mouse_up(btn)?;
+    std::thread::sleep(std::time::Duration::from_millis(25));
+
+    for &p in pts {
+        move_to(Point { x: p.x - r, y: p.y })?;
+        std::thread::sleep(std::time::Duration::from_millis(14));
+        mouse_down(btn)?;
+        std::thread::sleep(std::time::Duration::from_millis(22));
+
+        // Outer ring + inner cross of the dot so DirectInk renders a bold, saturated, solid round dot
+        let micro_pts = [
+            Point { x: p.x, y: p.y - r },
+            Point { x: p.x + r, y: p.y },
+            Point { x: p.x, y: p.y + r },
+            Point { x: p.x - r, y: p.y },
+            Point { x: p.x - r_inner, y: p.y - r_inner },
+            Point { x: p.x + r_inner, y: p.y + r_inner },
+            Point { x: p.x + r_inner, y: p.y - r_inner },
+            Point { x: p.x - r_inner, y: p.y + r_inner },
+            p,
+        ];
+        for mp in micro_pts {
+            move_to(mp)?;
+            std::thread::sleep(std::time::Duration::from_millis(3));
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(14));
+        mouse_up(btn)?;
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
+    Ok(())
+}
+
 pub fn scroll(amount: i32, horizontal: bool) -> Result<()> {
     // amount in "clicks" * 120
     let delta = amount * 120;

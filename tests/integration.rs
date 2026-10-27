@@ -139,6 +139,7 @@ fn pillar1_som_categorized_truncation() {
                 name: "Submit".into(),
                 control_type: "Button".into(),
                 automation_id: "btnSubmit".into(),
+                value: None,
                 rect: Rect { x: 10, y: 10, width: 80, height: 30 },
                 center: Point { x: 50, y: 25 },
                 rel_center: (0.06, 0.04),
@@ -149,6 +150,7 @@ fn pillar1_som_categorized_truncation() {
                 name: "Search Query".into(),
                 control_type: "Edit".into(),
                 automation_id: "txtSearch".into(),
+                value: Some("rust".into()),
                 rect: Rect { x: 100, y: 10, width: 200, height: 30 },
                 center: Point { x: 200, y: 25 },
                 rel_center: (0.25, 0.04),
@@ -159,6 +161,7 @@ fn pillar1_som_categorized_truncation() {
                 name: "This is a very long passive status text that exceeds thirty five characters".into(),
                 control_type: "Text".into(),
                 automation_id: "lblStatus".into(),
+                value: None,
                 rect: Rect { x: 10, y: 500, width: 600, height: 20 },
                 center: Point { x: 310, y: 510 },
                 rel_center: (0.38, 0.85),
@@ -168,7 +171,7 @@ fn pillar1_som_categorized_truncation() {
     };
     let digest = snap.to_compact_prompt();
     assert!(digest.contains("Tools/Buttons (1): [01] \"Submit\" (50,25)"));
-    assert!(digest.contains("Inputs/Controls (1): [02] \"Search Query\" (200,25)"));
+    assert!(digest.contains("Inputs/Controls (1): [02] \"Search Query\"=\"rust\" (200,25)"));
     assert!(digest.contains("Menus/Other (1): [03] \"This is a very long passive stat...\" (310,510)"));
 }
 
@@ -199,4 +202,35 @@ fn pillar4_reactive_wait_for_change() {
     assert!(elapsed >= 20);
     assert!(!obs.compact_prompt.is_empty());
     assert!(!delta.summary.is_empty());
+}
+
+#[test]
+fn keyboard_punctuation_vk_resolution() {
+    for key in ["+", "plus", "-", "minus", "=", "/", ".", ",", ";", "'", "[", "]", "\\", "`", "apps"] {
+        assert!(computeruse::keyboard::resolve_vk(key).is_some(), "Failed to resolve VK for '{}'", key);
+    }
+}
+
+#[test]
+fn uia_read_window_text_nonempty() {
+    let lines = ComputerUse::uia_read_window_text(0).unwrap();
+    assert!(!lines.is_empty());
+}
+
+#[test]
+fn som_annotated_image_generation() {
+    let fg = ComputerUse::foreground_window().unwrap();
+    let som = ComputerUse::som_snapshot(fg.hwnd).unwrap();
+    let png_bytes = som.generate_annotated_image().unwrap();
+    assert!(png_bytes.len() > 100);
+}
+
+#[test]
+fn pixel_visual_checksum_and_color_search() {
+    let reg = Rect { x: 50, y: 50, width: 64, height: 64 };
+    let h = ComputerUse::region_visual_checksum(reg).unwrap();
+    assert!(h != 0);
+    let sample = ComputerUse::get_pixel(Point { x: 60, y: 60 }).unwrap();
+    let found = ComputerUse::find_color_in_region(reg, sample, 5).unwrap();
+    assert!(found.is_some());
 }

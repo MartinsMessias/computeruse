@@ -270,11 +270,12 @@ pub fn get_all_tools() -> Vec<Value> {
         }),
         json!({
             "name": "cu_type",
-            "description": "Type text into the currently focused window or control.",
+            "description": "Type or paste text into the currently focused window or control.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "text": { "type": "string", "description": "Text string to type" }
+                    "text": { "type": "string", "description": "Text string to type" },
+                    "paste": { "type": "boolean", "description": "Optional: set true to paste instantaneously via clipboard (ideal for long strings)", "default": false }
                 },
                 "required": ["text"]
             }
@@ -497,8 +498,43 @@ pub fn get_all_tools() -> Vec<Value> {
                         }
                     },
                     "save_path": { "type": "string", "description": "Optional file path to save the PNG directly to disk." },
-                    "omit_base64": { "type": "boolean", "description": "Optional: omit png_base64 from response when save_path is used to save tokens.", "default": false }
+                    "omit_base64": { "type": "boolean", "description": "Optional: omit png_base64 from response when save_path is used to save tokens.", "default": false },
+                    "annotate_marks": { "type": "boolean", "description": "Optional: overlay numbered Set-of-Marks [ID] badges onto all interactive elements in the screenshot.", "default": false }
                 }
+            }
+        }),
+        json!({
+            "name": "cu_read_window_text",
+            "description": "Extract all visible text strings, labels, and live control values from a window (or active foreground window) in milliseconds without OCR.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "hwnd": { "type": "integer", "description": "Optional HWND. If omitted, reads active foreground window." }
+                }
+            }
+        }),
+        json!({
+            "name": "cu_find_color",
+            "description": "Scan a screen region (or active window) in <3ms for the first pixel matching target RGB [r, g, b] within tolerance.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "r": { "type": "integer", "description": "Red channel (0..255)" },
+                    "g": { "type": "integer", "description": "Green channel (0..255)" },
+                    "b": { "type": "integer", "description": "Blue channel (0..255)" },
+                    "tolerance": { "type": "integer", "description": "Per-channel tolerance (default: 10)", "default": 10 },
+                    "region": {
+                        "type": "object",
+                        "description": "Optional region {x, y, width, height}. Defaults to active window.",
+                        "properties": {
+                            "x": { "type": "integer" },
+                            "y": { "type": "integer" },
+                            "width": { "type": "integer" },
+                            "height": { "type": "integer" }
+                        }
+                    }
+                },
+                "required": ["r", "g", "b"]
             }
         }),
         json!({
@@ -724,9 +760,15 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
 
         "cu_type" => {
             let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            match env.step(crate::AgentAction::TypeText { text }) {
-                Ok(res) => Ok(json!({ "success": res.success, "message": res.message })),
-                Err(e) => Err(e.to_string()),
+            let use_paste = args.get("paste").and_then(|v| v.as_bool()).unwrap_or(false);
+            if use_paste {
+                keyboard::paste_text(&text).map_err(|e| e.to_string())?;
+                Ok(json!({ "success": true, "message": format!("Pasted {} chars via clipboard", text.len()) }))
+            } else {
+                match env.step(crate::AgentAction::TypeText { text }) {
+                    Ok(res) => Ok(json!({ "success": res.success, "message": res.message })),
+                    Err(e) => Err(e.to_string()),
+                }
             }
         }
 
@@ -967,6 +1009,22 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                                         let _ = canvas.stroke_text(x, y, text, scale);
                                         drawn_count += 1;
                                     }
+                                    "dots" | "points" => {
+                                        let radius_px = cmd.get("dot_radius").or_else(|| cmd.get("radius_px")).and_then(|v| v.as_i64()).unwrap_or(2) as i32;
+                                        if let Some(pts_arr) = cmd.get("points").or_else(|| cmd.get("dots")).and_then(|v| v.as_array()) {
+                                            let pts: Vec<(f64, f64)> = pts_arr.iter().filter_map(|p| {
+                                                if let Some(a) = p.as_array() {
+                                                    Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?))
+                                                } else if let Some(o) = p.as_object() {
+                                                    Some((o.get("x")?.as_f64()?, o.get("y")?.as_f64()?))
+                                                } else {
+                                                    None
+                                                }
+                                            }).collect();
+                                            let _ = canvas.stroke_dots(&pts, radius_px);
+                                            drawn_count += 1;
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
@@ -1142,7 +1200,19 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             };
 
             match shot {
-                Ok(s) => {
+                Ok(mut s) => {
+                    let annotate = args.get("annotate_marks").and_then(|v| v.as_bool()).unwrap_or(false);
+                    if annotate {
+                        if env.last_som().is_none() {
+                            let _ = env.observe();
+                        }
+                        if let Some(som) = env.last_som() {
+                            if let Ok(annotated_bytes) = som.generate_annotated_image() {
+                                use base64::Engine;
+                                s.png_base64 = base64::engine::general_purpose::STANDARD.encode(&annotated_bytes);
+                            }
+                        }
+                    }
                     let save_path = args.get("save_path").and_then(|v| v.as_str());
                     let omit_b64 = args.get("omit_base64").and_then(|v| v.as_bool()).unwrap_or(false);
                     if let Some(p) = save_path {
@@ -1153,7 +1223,8 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                     let mut resp = json!({
                         "width": s.width,
                         "height": s.height,
-                        "region": s.region
+                        "region": s.region,
+                        "annotated_marks": annotate
                     });
                     if let Some(p) = save_path {
                         resp["saved_to"] = json!(p);
@@ -1165,6 +1236,31 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                 },
                 Err(e) => Err(e.to_string()),
             }
+        }
+
+        "cu_read_window_text" => {
+            let hwnd = args.get("hwnd").and_then(|v| v.as_i64()).unwrap_or(0) as isize;
+            let lines = uia::read_window_text(hwnd).map_err(|e| e.to_string())?;
+            Ok(json!({ "count": lines.len(), "lines": lines }))
+        }
+
+        "cu_find_color" => {
+            let r = args.get("r").and_then(|v| v.as_u64()).unwrap_or(0).min(255) as u8;
+            let g = args.get("g").and_then(|v| v.as_u64()).unwrap_or(0).min(255) as u8;
+            let b = args.get("b").and_then(|v| v.as_u64()).unwrap_or(0).min(255) as u8;
+            let tol = args.get("tolerance").and_then(|v| v.as_u64()).unwrap_or(10).min(255) as u8;
+            let region = if let Some(reg_obj) = args.get("region").and_then(|v| v.as_object()) {
+                Rect {
+                    x: reg_obj.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                    y: reg_obj.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                    width: reg_obj.get("width").and_then(|v| v.as_u64()).unwrap_or(400).max(1) as u32,
+                    height: reg_obj.get("height").and_then(|v| v.as_u64()).unwrap_or(400).max(1) as u32,
+                }
+            } else {
+                window::foreground_window().map(|w| w.rect).unwrap_or(Rect { x: 0, y: 0, width: 800, height: 600 })
+            };
+            let found = crate::pixel::find_color_in_region(region, (r, g, b), tol).map_err(|e| e.to_string())?;
+            Ok(json!({ "found": found.is_some(), "point": found, "region": region }))
         }
 
         "cu_clipboard_get" => match clipboard::get_text() {

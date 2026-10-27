@@ -16,6 +16,8 @@ pub struct InteractiveElement {
     pub name: String,
     pub control_type: String,
     pub automation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
     pub rect: Rect,
     pub center: Point,
     pub rel_center: (f64, f64),
@@ -48,7 +50,15 @@ impl SomSnapshot {
             if el.control_type == "Group" || el.control_type == "Window" {
                 continue;
             }
-            let entry = format!("[{:02}] \"{}\" ({},{})", el.mark_id, el.name, el.center.x, el.center.y);
+            let val_suffix = el.value.as_ref().map(|v| {
+                if v.chars().count() > 28 {
+                    let p: String = v.chars().take(25).collect();
+                    format!("=\"{}...\"", p)
+                } else {
+                    format!("=\"{}\"", v)
+                }
+            }).unwrap_or_default();
+            let entry = format!("[{:02}] \"{}\"{} ({},{})", el.mark_id, el.name, val_suffix, el.center.x, el.center.y);
             match el.control_type.as_str() {
                 "ListItem" => palette_items.push(entry),
                 "Button" | "RadioButton" | "SplitButton" | "CheckBox" => tools_and_buttons.push(entry),
@@ -170,9 +180,17 @@ pub fn capture_som(hwnd: isize) -> Result<SomSnapshot> {
     let automation = UIAutomation::new().map_err(|e| CuError::Windows(e.to_string()))?;
 
     let handle: Handle = unsafe { std::mem::transmute(hwnd as *mut std::ffi::c_void) };
-    let root = automation
-        .element_from_handle(handle)
-        .map_err(|e| CuError::Windows(e.to_string()))?;
+    let root = match automation.element_from_handle(handle) {
+        Ok(r) => r,
+        Err(_) => {
+            return Ok(SomSnapshot {
+                hwnd,
+                title: win.title,
+                window_rect: win.rect,
+                elements: Vec::new(),
+            });
+        }
+    };
 
     let walker = automation
         .get_control_view_walker()
@@ -194,10 +212,17 @@ pub fn capture_som(hwnd: isize) -> Result<SomSnapshot> {
         let x = r.get_left();
         let y = r.get_top();
 
-        // Filter out zero-size or off-screen artifacts
-        if width < 5 || height < 5 {
+        // Filter out zero-size or out-of-window artifacts using zero-cost arithmetic
+        if width < 5 || height < 5 || x + (width as i32) <= win.rect.x || y + (height as i32) <= win.rect.y {
             continue;
         }
+
+        // Extract live value only for Edit controls to keep COM traversal sub-millisecond
+        let value = if control_type == "Edit" {
+            crate::uia::get_element_value(&el)
+        } else {
+            None
+        };
 
         // Element center point
         let cx = x + (width as i32 / 2);
@@ -214,6 +239,7 @@ pub fn capture_som(hwnd: isize) -> Result<SomSnapshot> {
             name,
             control_type,
             automation_id,
+            value,
             rect: Rect { x, y, width, height },
             center: Point { x: cx, y: cy },
             rel_center: (rel_x, rel_y),

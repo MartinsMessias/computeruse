@@ -131,6 +131,8 @@ pub fn focus_window(hwnd: isize) -> Result<()> {
         // AttachThreadInput trick to allow focus
         use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
         let _ = AllowSetForegroundWindow(0xFFFFFFFF); // ASFW_ANY
+        let _ = SetWindowPos(h, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        let _ = SetWindowPos(h, Some(HWND_NOTOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         let ok = SetForegroundWindow(h);
         if !ok.as_bool() {
             // fallback: try again after alt key tap

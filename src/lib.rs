@@ -69,6 +69,7 @@ impl ComputerUse {
     // Keyboard
     pub fn type_text(text: &str) -> Result<()> { keyboard::type_text(text) }
     pub fn type_text_with_delay(text: &str, delay_ms: u64) -> Result<()> { keyboard::type_text_with_delay(text, delay_ms) }
+    pub fn paste_text(text: &str) -> Result<()> { keyboard::paste_text(text) }
     pub fn key_press(name: &str) -> Result<()> { keyboard::key_press(name) }
     pub fn key_down(name: &str) -> Result<()> { keyboard::key_down(name) }
     pub fn key_up(name: &str) -> Result<()> { keyboard::key_up(name) }
@@ -117,6 +118,12 @@ impl ComputerUse {
     pub fn clipboard_set(text: &str) -> Result<()> { clipboard::set_text(text) }
     // Pixel
     pub fn get_pixel(p: Point) -> Result<(u8, u8, u8)> { pixel::get_pixel(p) }
+    pub fn find_color_in_region(region: Rect, target_rgb: (u8, u8, u8), tolerance: u8) -> Result<Option<Point>> {
+        pixel::find_color_in_region(region, target_rgb, tolerance)
+    }
+    pub fn region_visual_checksum(region: Rect) -> Result<u64> {
+        pixel::region_visual_checksum(region)
+    }
     // Launch
     pub fn launch(target: &str, params: Option<&str>) -> Result<()> { launch::launch(target, params) }
     // Process
@@ -131,6 +138,7 @@ impl ComputerUse {
     pub fn uia_find_by_id(id: &str) -> Result<Vec<UiElementInfo>> { uia::find_by_automation_id(id) }
     pub fn uia_click_by_name(name: &str) -> Result<UiElementInfo> { uia::click_by_name(name) }
     pub fn uia_children(hwnd: isize) -> Result<Vec<UiElementInfo>> { uia::get_children(hwnd) }
+    pub fn uia_read_window_text(hwnd: isize) -> Result<Vec<String>> { uia::read_window_text(hwnd) }
 
     // Audio
     pub fn audio_get_volume() -> Result<u32> { audio::get_volume() }
