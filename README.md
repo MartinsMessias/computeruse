@@ -37,15 +37,15 @@ Run as a native stdio MCP server or synchronize schemas directly to Antigravity'
 # Start the stdio JSON-RPC 2.0 MCP server (auto-syncs schemas on startup)
 cu mcp
 
-# Force-sync all 44 tool schemas + instructions.md to ~/.gemini/antigravity-cli/mcp/computeruse
+# Force-sync all 45 tool schemas + instructions.md to ~/.gemini/antigravity-cli/mcp/computeruse
 cu mcp --sync
 ```
 
-### Available MCP Tools (44 Tools)
+### Available MCP Tools (45 Tools)
 
 | Category | Tools |
 |---|---|
-| **Perception & Visual** | `cu_observe`, `cu_read_window_text`, `cu_screenshot`, `cu_find_color`, `cu_inspect_element_at` |
+| **Perception & Visual** | `cu_observe`, `cu_read_window_text`, `cu_screenshot`, `cu_find_color`, `cu_count_color_ratio`, `cu_inspect_element_at` |
 | **Semantic & Mouse Input** | `cu_click_mark`, `cu_right_click_mark`, `cu_hover_mark`, `cu_fill_mark`, `cu_drag_mark_to_mark`, `cu_click_name`, `cu_click_rel`, `cu_click_coords`, `cu_double_click`, `cu_triple_click`, `cu_move`, `cu_drag`, `cu_drag_rel`, `cu_mouse_down`, `cu_mouse_up`, `cu_scroll` |
 | **Keyboard & Clipboard** | `cu_type`, `cu_key`, `cu_hotkey`, `cu_copy_selection`, `cu_clipboard_get`, `cu_clipboard_set`, `cu_clipboard_set_image` |
 | **Atomic Batch & Reactive Sync** | `cu_batch`, `cu_wait_for_change`, `cu_wait_for_text` |
