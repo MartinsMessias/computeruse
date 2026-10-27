@@ -177,6 +177,63 @@ pub fn move_resize_window(hwnd: isize, rect: Rect) -> Result<()> {
     Ok(())
 }
 
+/// Snaps a window to a human workspace layout (`left`, `right`, `top`, `bottom`, `top_left`, `top_right`, `bottom_left`, `bottom_right`, `center`, `maximize`)
+/// on the monitor where the window currently resides (or the primary monitor).
+pub fn snap_window(hwnd: isize, position: &str) -> Result<Rect> {
+    let win = find_window_by_hwnd(hwnd)?;
+    let monitors = crate::screen::list_monitors()?;
+    let win_cx = win.rect.x + (win.rect.width as i32 / 2);
+    let win_cy = win.rect.y + (win.rect.height as i32 / 2);
+    let mon = monitors
+        .iter()
+        .find(|m| {
+            win_cx >= m.rect.x
+                && win_cx < m.rect.x + (m.rect.width as i32)
+                && win_cy >= m.rect.y
+                && win_cy < m.rect.y + (m.rect.height as i32)
+        })
+        .or_else(|| monitors.iter().find(|m| m.is_primary))
+        .or_else(|| monitors.first())
+        .ok_or_else(|| CuError::NotFound("no monitors".into()))?;
+
+    let mx = mon.rect.x;
+    let my = mon.rect.y;
+    let mw = mon.rect.width;
+    let mh = mon.rect.height;
+    let hw = mw / 2;
+    let hh = mh / 2;
+
+    restore_window(hwnd)?;
+    let pos = position.trim().to_lowercase().replace('-', "_");
+    let target = match pos.as_str() {
+        "left" => Rect { x: mx, y: my, width: hw, height: mh },
+        "right" => Rect { x: mx + hw as i32, y: my, width: mw - hw, height: mh },
+        "top" => Rect { x: mx, y: my, width: mw, height: hh },
+        "bottom" => Rect { x: mx, y: my + hh as i32, width: mw, height: mh - hh },
+        "top_left" | "topleft" => Rect { x: mx, y: my, width: hw, height: hh },
+        "top_right" | "topright" => Rect { x: mx + hw as i32, y: my, width: mw - hw, height: hh },
+        "bottom_left" | "bottomleft" => Rect { x: mx, y: my + hh as i32, width: hw, height: mh - hh },
+        "bottom_right" | "bottomright" => Rect { x: mx + hw as i32, y: my + hh as i32, width: mw - hw, height: mh - hh },
+        "center" => {
+            let cw = (mw * 3) / 4;
+            let ch = (mh * 3) / 4;
+            Rect {
+                x: mx + ((mw - cw) / 2) as i32,
+                y: my + ((mh - ch) / 2) as i32,
+                width: cw,
+                height: ch,
+            }
+        }
+        "maximize" | "full" => {
+            maximize_window(hwnd)?;
+            return Ok(mon.rect);
+        }
+        other => return Err(CuError::InvalidArg(format!("Unknown snap position '{}'", other))),
+    };
+    move_resize_window(hwnd, target)?;
+    Ok(target)
+}
+
 pub fn wait_for_window(title_contains: &str, timeout_ms: u64) -> Result<WindowInfo> {
     let start = std::time::Instant::now();
     loop {

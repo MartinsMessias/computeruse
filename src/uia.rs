@@ -57,10 +57,12 @@ pub fn focused_element() -> Result<UiElementInfo> {
 
 pub fn get_element_value(el: &uiautomation::core::UIElement) -> Option<String> {
     if let Ok(val) = el.get_property_value(uiautomation::types::UIProperty::ValueValue) {
-        if let Ok(s) = val.get_string() {
-            let trimmed = s.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
+        if val.is_string() {
+            if let Ok(s) = val.get_string() {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
             }
         }
     }
@@ -165,7 +167,7 @@ fn collect_text_recursive(
     out: &mut Vec<String>,
     depth: usize,
 ) {
-    if depth > 5 || out.len() >= 120 {
+    if depth > 6 || out.len() >= 140 {
         return;
     }
     let name = el.get_name().unwrap_or_default();
@@ -174,6 +176,15 @@ fn collect_text_recursive(
         let s = trimmed.to_string();
         if out.last() != Some(&s) {
             out.push(s);
+        }
+    }
+    if let Ok(ct) = el.get_control_type() {
+        if matches!(ct, uiautomation::controls::ControlType::Edit | uiautomation::controls::ControlType::ComboBox) {
+            if let Some(val) = get_element_value(el) {
+                if out.last() != Some(&val) && val != trimmed {
+                    out.push(val);
+                }
+            }
         }
     }
 

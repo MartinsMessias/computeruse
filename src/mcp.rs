@@ -49,21 +49,25 @@ pub fn get_mcp_config_dir() -> PathBuf {
         .join("computeruse")
 }
 
-/// Synchronizes all tool schemas and instructions directly into Antigravity's MCP directory.
+/// Synchronizes all tool schemas and instructions directly into Antigravity's MCP directory,
+/// pruning any stale `.json` files that are no longer part of `get_all_tools()`.
 pub fn sync_all_mcp_schemas() -> Result<usize> {
     let dir = get_mcp_config_dir();
     let _ = std::fs::create_dir_all(&dir);
 
     let tools = get_all_tools();
     let count = tools.len();
+    let mut active_files = std::collections::HashSet::new();
 
     for t in &tools {
         let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("");
         if name.is_empty() {
             continue;
         }
+        let filename = format!("{}.json", name);
+        active_files.insert(filename.clone());
 
-        let schema_file = dir.join(format!("{}.json", name));
+        let schema_file = dir.join(filename);
         let content = json!({
             "name": name,
             "description": t.get("description").unwrap_or(&Value::Null),
@@ -71,6 +75,16 @@ pub fn sync_all_mcp_schemas() -> Result<usize> {
         });
 
         let _ = std::fs::write(schema_file, serde_json::to_string(&content).unwrap_or_default());
+    }
+
+    // Prune stale .json schema files from previous versions
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name().to_string_lossy().to_string();
+            if fname.ends_with(".json") && !active_files.contains(&fname) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
     }
 
     // Write updated instructions.md
@@ -581,6 +595,19 @@ pub fn get_all_tools() -> Vec<Value> {
                     "hwnd": { "type": "integer" },
                     "title": { "type": "string" }
                 }
+            }
+        }),
+        json!({
+            "name": "cu_snap_window",
+            "description": "Snap a window to a human workspace layout ('left', 'right', 'top', 'bottom', 'top_left', 'top_right', 'bottom_left', 'bottom_right', 'center', 'maximize') on its current monitor.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "position": { "type": "string", "description": "Snap position: 'left', 'right', 'top', 'bottom', 'top_left', 'top_right', 'bottom_left', 'bottom_right', 'center', 'maximize'" },
+                    "hwnd": { "type": "integer", "description": "Optional HWND (defaults to foreground window if title also omitted)" },
+                    "title": { "type": "string", "description": "Optional window title substring" }
+                },
+                "required": ["position"]
             }
         }),
         json!({
@@ -1388,6 +1415,20 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             };
             window::minimize_window(target_hwnd).map_err(|e| e.to_string())?;
             Ok(json!({ "success": true, "minimized_hwnd": target_hwnd }))
+        }
+
+        "cu_snap_window" => {
+            let position = args.get("position").and_then(|v| v.as_str()).unwrap_or("center");
+            let hwnd = args.get("hwnd").and_then(|v| v.as_i64()).map(|h| h as isize);
+            let target_hwnd = if let Some(h) = hwnd {
+                h
+            } else if let Some(title) = args.get("title").and_then(|v| v.as_str()) {
+                window::find_window(title).map(|w| w.hwnd).map_err(|e| e.to_string())?
+            } else {
+                window::foreground_window().map(|w| w.hwnd).map_err(|e| e.to_string())?
+            };
+            let new_rect = window::snap_window(target_hwnd, position).map_err(|e| e.to_string())?;
+            Ok(json!({ "success": true, "hwnd": target_hwnd, "position": position, "rect": new_rect }))
         }
 
         "cu_screenshot" => {

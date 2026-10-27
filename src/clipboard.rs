@@ -9,17 +9,19 @@ const CF_UNICODETEXT: u32 = 13;
 
 struct ClipboardGuard;
 
+static CLIPBOARD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 impl ClipboardGuard {
     fn open() -> Result<Self> {
         let _ = crate::desktop::attach_thread_to_input_desktop();
         unsafe {
             let mut last_err = None;
-            for _ in 0..8 {
+            for _ in 0..20 {
                 match OpenClipboard(Some(HWND(std::ptr::null_mut()))) {
                     Ok(()) => return Ok(Self),
                     Err(e) => {
                         last_err = Some(e);
-                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        std::thread::sleep(std::time::Duration::from_millis(12));
                     }
                 }
             }
@@ -40,6 +42,7 @@ impl Drop for ClipboardGuard {
 }
 
 pub fn get_text() -> Result<String> {
+    let _lock = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _guard = ClipboardGuard::open()?;
     unsafe {
         let handle = GetClipboardData(CF_UNICODETEXT)
@@ -64,6 +67,7 @@ pub fn get_text() -> Result<String> {
 }
 
 pub fn set_text(text: &str) -> Result<()> {
+    let _lock = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _guard = ClipboardGuard::open()?;
     unsafe {
         EmptyClipboard()?;
@@ -119,6 +123,7 @@ pub fn set_image_from_region(region: crate::types::Rect) -> Result<()> {
             return Err(CuError::Windows("BitBlt for clipboard image failed".into()));
         }
 
+        let _lock = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _guard = ClipboardGuard::open()?;
         EmptyClipboard()?;
         let h = windows::Win32::Foundation::HANDLE(hbmp.0);

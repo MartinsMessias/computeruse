@@ -23,13 +23,14 @@ fn cursor_roundtrip() {
 
 #[test]
 fn clipboard_roundtrip() {
-    // 1. Test image clipboard first
-    ComputerUse::clipboard_set_image_from_region(Rect { x: 10, y: 10, width: 64, height: 64 }).unwrap();
-    // 2. Test text clipboard roundtrip sequentially so parallel threads don't overwrite the OS global clipboard
+    // 1. Test text clipboard roundtrip first
     let msg = "cu-test-123";
     ComputerUse::clipboard_set(msg).unwrap();
     let got = ComputerUse::clipboard_get().unwrap();
     assert_eq!(got, msg);
+    // 2. Test image clipboard (CF_BITMAP) and restore text clipboard
+    ComputerUse::clipboard_set_image_from_region(Rect { x: 10, y: 10, width: 64, height: 64 }).unwrap();
+    let _ = ComputerUse::clipboard_set(msg);
 }
 
 #[test]

@@ -412,10 +412,6 @@ fn run_action(cmd: &serde_json::Value) -> serde_json::Value {
 
 fn main() {
     let _ = computeruse::desktop::attach_thread_to_input_desktop();
-    // Initialize tracing (env-controlled)
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .try_init();
     let cli = Cli::parse();
     match cli.cmd {
         Commands::ScreenSize => match ComputerUse::screen_size() {

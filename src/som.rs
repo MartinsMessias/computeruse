@@ -212,16 +212,23 @@ pub fn capture_som(hwnd: isize) -> Result<SomSnapshot> {
         let x = r.get_left();
         let y = r.get_top();
 
-        // Filter out zero-size or out-of-window artifacts using zero-cost arithmetic
-        if width < 5 || height < 5 || x + (width as i32) <= win.rect.x || y + (height as i32) <= win.rect.y {
+        // Filter out zero-size or out-of-window artifacts using all-4-bounds zero-cost arithmetic
+        let win_right = win.rect.x + (win.rect.width as i32);
+        let win_bottom = win.rect.y + (win.rect.height as i32);
+        if width < 5
+            || height < 5
+            || x + (width as i32) <= win.rect.x
+            || y + (height as i32) <= win.rect.y
+            || x >= win_right
+            || y >= win_bottom
+        {
             continue;
         }
 
-        // Extract live value only for Edit controls to keep COM traversal sub-millisecond
-        let value = if control_type == "Edit" {
-            crate::uia::get_element_value(&el)
-        } else {
-            None
+        // Extract live value for Edit and ComboBox controls safely
+        let value = match control_type.as_str() {
+            "Edit" | "ComboBox" => crate::uia::get_element_value(&el),
+            _ => None,
         };
 
         // Element center point
@@ -263,22 +270,31 @@ fn traverse_interactive(
     out: &mut Vec<uiautomation::core::UIElement>,
     depth: usize,
 ) {
-    if depth > 8 {
+    if depth > 14 || out.len() >= 180 {
         return;
     }
 
     if let Ok(ct) = el.get_control_type() {
         let ct_name = format!("{:?}", ct);
-        let is_actionable = ct_name.contains("Button")
-            || ct_name.contains("CheckBox")
-            || ct_name.contains("ComboBox")
-            || ct_name.contains("Edit")
-            || ct_name.contains("Hyperlink")
-            || ct_name.contains("ListItem")
-            || ct_name.contains("MenuItem")
-            || ct_name.contains("RadioButton")
-            || ct_name.contains("TabItem")
-            || ct_name.contains("Slider");
+        let is_actionable = matches!(
+            ct_name.as_str(),
+            "Button"
+                | "SplitButton"
+                | "CheckBox"
+                | "ComboBox"
+                | "Edit"
+                | "Document"
+                | "Hyperlink"
+                | "ListItem"
+                | "TreeItem"
+                | "DataItem"
+                | "MenuItem"
+                | "MenuBar"
+                | "RadioButton"
+                | "TabItem"
+                | "Slider"
+                | "Spinner"
+        );
 
         let has_name = el.get_name().map(|n| !n.trim().is_empty()).unwrap_or(false);
 
