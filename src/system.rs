@@ -8,6 +8,60 @@ use windows::Win32::System::SystemInformation::{
     GlobalMemoryStatusEx, GetTickCount64, MEMORYSTATUSEX,
 };
 
+/// Resolves a file extension or URI protocol scheme to its associated executable or default application.
+/// Examples: `.pdf`, `.png`, `.docx`, `https`, `mailto`.
+pub fn resolve_file_association(ext_or_protocol: &str) -> Result<String> {
+    use windows::Win32::UI::Shell::{AssocQueryStringW, ASSOCF_NONE, ASSOCSTR_EXECUTABLE};
+    let key = if ext_or_protocol.starts_with('.') || ext_or_protocol.contains(':') {
+        ext_or_protocol.trim_end_matches(':').to_string()
+    } else {
+        format!(".{}", ext_or_protocol)
+    };
+    let wide_key: Vec<u16> = key.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut buf = vec![0u16; 512];
+    let mut cch = buf.len() as u32;
+
+    unsafe {
+        let hr = AssocQueryStringW(
+            ASSOCF_NONE,
+            ASSOCSTR_EXECUTABLE,
+            PCWSTR(wide_key.as_ptr()),
+            PCWSTR::null(),
+            Some(windows::core::PWSTR(buf.as_mut_ptr())),
+            &mut cch,
+        );
+        if hr.is_err() {
+            return Err(CuError::NotFound(format!(
+                "No associated application for '{}'",
+                ext_or_protocol
+            )));
+        }
+    }
+    let len = cch.saturating_sub(1) as usize;
+    Ok(String::from_utf16_lossy(&buf[..len]).to_string())
+}
+
+/// Plays a system standard sound alert (`default`, `error`, `warning`, `question`, `asterisk`).
+pub fn play_system_sound(sound_type: &str) -> Result<()> {
+    windows::core::link!("user32.dll" "system" fn MessageBeep(utype: u32) -> windows::core::BOOL);
+    let u_type = match sound_type.to_lowercase().as_str() {
+        "error" | "hand" | "stop" => 0x00000010,
+        "question" => 0x00000020,
+        "warning" | "exclamation" => 0x00000030,
+        "asterisk" | "info" => 0x00000040,
+        _ => 0xFFFFFFFF, // default simple beep
+    };
+    unsafe {
+        let _ = MessageBeep(u_type);
+    }
+    Ok(())
+}
+
+/// Query standard Windows environment variables or system-wide settings.
+pub fn get_env_var(name: &str) -> Result<String> {
+    std::env::var(name).map_err(|_| CuError::NotFound(format!("Environment variable '{}' not set", name)))
+}
+
 windows::core::link!("user32.dll" "system" fn LockWorkStation() -> windows::core::BOOL);
 
 /// Retrieve system health, memory, CPU, uptime, and battery power information.

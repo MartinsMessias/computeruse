@@ -303,3 +303,21 @@ fn human_parity_scancodes_modifiers_and_image_clipboard() {
     assert!(matches!(AgentAction::from_flexible_json(&m2).unwrap(), AgentAction::DragMarkToMark { from_mark: 1, to_mark: 9, modifiers: Some(ref mods) } if mods[0] == "alt"));
     assert!(matches!(AgentAction::from_flexible_json(&m3).unwrap(), AgentAction::TripleClick { mark_id: Some(2), .. }));
 }
+
+#[test]
+fn system_file_association_and_sound() {
+    // .txt is guaranteed to have an associated application on all Windows systems (notepad)
+    let assoc = ComputerUse::system_resolve_association(".txt");
+    assert!(assoc.is_ok(), "Expected .txt association to resolve");
+    let exe = assoc.unwrap().to_lowercase();
+    assert!(exe.contains("notepad") || exe.contains(".exe"));
+
+    // play_system_sound test
+    let res = ComputerUse::system_play_sound("default");
+    assert!(res.is_ok());
+
+    // Window snap calculation
+    let fg = ComputerUse::foreground_window().unwrap();
+    let snapped = ComputerUse::snap_window(fg.hwnd, "center");
+    assert!(snapped.is_ok());
+}

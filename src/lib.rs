@@ -161,6 +161,9 @@ impl ComputerUse {
     pub fn system_drives() -> Result<Vec<DriveInfo>> { system::get_drives() }
     pub fn system_lock() -> Result<()> { system::lock() }
     pub fn system_special_folder(name: &str) -> Result<String> { system::get_special_folder(name) }
+    pub fn system_resolve_association(ext_or_protocol: &str) -> Result<String> { system::resolve_file_association(ext_or_protocol) }
+    pub fn system_play_sound(sound_type: &str) -> Result<()> { system::play_system_sound(sound_type) }
+    pub fn system_get_env(name: &str) -> Result<String> { system::get_env_var(name) }
 
     // Dynamic Canvas & Adaptive Vector Drawing
     pub fn canvas_find_in_window(hwnd: isize) -> Result<DynamicCanvas> {

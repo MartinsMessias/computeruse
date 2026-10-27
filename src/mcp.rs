@@ -760,6 +760,38 @@ pub fn get_all_tools() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "cu_resolve_association",
+            "description": "Resolve a file extension or URI protocol scheme (e.g. '.pdf', '.png', 'https', 'mailto') to the registered default executable on Windows.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target": { "type": "string", "description": "Extension or protocol (e.g. '.pdf', 'https')" }
+                },
+                "required": ["target"]
+            }
+        }),
+        json!({
+            "name": "cu_system_sound",
+            "description": "Play a standard Windows audio notification cue ('default', 'error', 'warning', 'question', 'asterisk').",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sound": { "type": "string", "enum": ["default", "error", "warning", "question", "asterisk"], "default": "default" }
+                }
+            }
+        }),
+        json!({
+            "name": "cu_special_folder",
+            "description": "Get the resolved absolute path of a Windows known folder (e.g. 'desktop', 'downloads', 'documents', 'appdata', 'temp', 'pictures').",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Folder name (e.g. 'desktop', 'downloads', 'documents', 'appdata', 'temp')" }
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
             "name": "cu_sync_schemas",
             "description": "Force refresh and update all MCP schema files on disk in Antigravity's directory.",
             "inputSchema": {
@@ -1602,6 +1634,24 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             Ok(info) => Ok(json!({ "sysinfo": info })),
             Err(e) => Err(e.to_string()),
         },
+
+        "cu_resolve_association" => {
+            let target = args.get("target").and_then(|v| v.as_str()).unwrap_or("");
+            let exe = system::resolve_file_association(target).map_err(|e| e.to_string())?;
+            Ok(json!({ "success": true, "target": target, "executable": exe }))
+        }
+
+        "cu_system_sound" => {
+            let sound = args.get("sound").and_then(|v| v.as_str()).unwrap_or("default");
+            system::play_system_sound(sound).map_err(|e| e.to_string())?;
+            Ok(json!({ "success": true, "played": sound }))
+        }
+
+        "cu_special_folder" => {
+            let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("desktop");
+            let path = system::get_special_folder(name).map_err(|e| e.to_string())?;
+            Ok(json!({ "success": true, "name": name, "path": path }))
+        }
 
         "cu_sync_schemas" => {
             let count = sync_all_mcp_schemas().map_err(|e| e.to_string())?;

@@ -127,6 +127,12 @@ enum Commands {
     Lock,
     /// Windows special folder path (desktop, downloads, documents, appdata, temp, etc.)
     SpecialFolder { name: String },
+    /// Resolve default application for extension or URI protocol
+    ResolveAssoc { target: String },
+    /// Play system sound alert (default, error, warning, question, asterisk)
+    SystemSound { #[arg(default_value = "default")] sound: String },
+    /// Window snap to screen edge/corner (left, right, top, bottom, top_left, top_right, bottom_left, bottom_right, center, maximize)
+    SnapWindow { position: String, #[arg(long)] hwnd: Option<isize>, #[arg(long)] title: Option<String> },
     /// Window topmost pin
     WindowTopmost { hwnd: isize, #[arg(long)] disable: bool },
     /// Window opacity (0-255)
@@ -691,6 +697,27 @@ fn main() {
         Commands::SpecialFolder { name } => match ComputerUse::system_special_folder(&name) {
             Ok(path) => out(json!({"ok": true, "folder": name, "path": path})),
             Err(e) => err(e),
+        },
+        Commands::ResolveAssoc { target } => match ComputerUse::system_resolve_association(&target) {
+            Ok(exe) => out(json!({"ok": true, "target": target, "executable": exe})),
+            Err(e) => err(e),
+        },
+        Commands::SystemSound { sound } => match ComputerUse::system_play_sound(&sound) {
+            Ok(_) => out(json!({"ok": true, "sound": sound})),
+            Err(e) => err(e),
+        },
+        Commands::SnapWindow { position, hwnd, title } => {
+            let target_hwnd = if let Some(h) = hwnd {
+                Ok(h)
+            } else if let Some(ref t) = title {
+                ComputerUse::find_window(t).map(|w| w.hwnd)
+            } else {
+                ComputerUse::foreground_window().map(|w| w.hwnd)
+            };
+            match target_hwnd.and_then(|h| ComputerUse::snap_window(h, &position).map(|r| (h, r))) {
+                Ok((h, r)) => out(json!({"ok": true, "hwnd": h, "position": position, "rect": r})),
+                Err(e) => err(e),
+            }
         },
         Commands::WindowTopmost { hwnd, disable } => match ComputerUse::set_window_topmost(hwnd, !disable) {
             Ok(_) => out(json!({"ok": true, "hwnd": hwnd, "topmost": !disable})),
