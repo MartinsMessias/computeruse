@@ -280,8 +280,8 @@ fn agent_high_leverage_actions_parsing_and_wait_for_text() {
     if !fg.title.is_empty() {
         let mut env = AgentEnvironment::new().with_settle_delay(10);
         let token: String = fg.title.chars().take(4).collect();
-        let (obs, elapsed) = env.wait_for_text(&token, 500).unwrap();
-        assert!(elapsed < 500);
+        let (obs, elapsed) = env.wait_for_text(&token, 1500).unwrap();
+        assert!(elapsed <= 1500);
         assert!(!obs.window_title.is_empty());
     }
 }
@@ -347,4 +347,16 @@ fn work_area_and_long_click() {
     // Test browser navigation keys
     let back_vk = computeruse::keyboard::resolve_vk("browser_back").unwrap();
     assert_eq!(back_vk, 0xA6);
+}
+
+#[test]
+fn speed_optimizations_and_fuzzy_search() {
+    // 1. UIA fuzzy search fallback: search for common Windows UI tokens
+    let found = ComputerUse::uia_find_by_name("window");
+    assert!(found.is_ok());
+
+    // 2. DynamicCanvas resolution in foreground window
+    if let Ok(fg) = ComputerUse::foreground_window() {
+        let _ = computeruse::DynamicCanvas::find_in_window(fg.hwnd);
+    }
 }

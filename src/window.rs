@@ -269,5 +269,63 @@ pub fn set_opacity(hwnd: isize, alpha: u8) -> Result<()> {
     }
 }
 
+/// Automates the standard Windows "Save As" Common Item Dialog (`#32770`).
+/// Triggers `Ctrl+S` if not already open, detects the dialog, types/pastes the target path,
+/// and submits with `Enter` in a single zero-roundtrip atomic macro.
+pub fn save_file_dialog(path: &str, timeout_ms: u64) -> Result<()> {
+    // If no dialog is currently visible, press Ctrl+S
+    let dialog_open = list_windows(true)?
+        .into_iter()
+        .any(|w| w.class_name == "#32770" || w.title.to_lowercase().contains("save as") || w.title.to_lowercase().contains("salvar como"));
+    
+    if !dialog_open {
+        let _ = crate::keyboard::combo_str("ctrl+s");
+    }
+
+    // Wait for the dialog to appear
+    let start = std::time::Instant::now();
+    let mut dlg_hwnd = 0isize;
+    while start.elapsed().as_millis() as u64 <= timeout_ms {
+        if let Ok(windows) = list_windows(true) {
+            if let Some(w) = windows.into_iter().find(|w| {
+                w.class_name == "#32770" || w.title.to_lowercase().contains("save as") || w.title.to_lowercase().contains("salvar como")
+            }) {
+                dlg_hwnd = w.hwnd;
+                break;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+
+    if dlg_hwnd == 0 {
+        return Err(CuError::NotFound(format!("Save As dialog did not appear within {}ms", timeout_ms)));
+    }
+
+    // Focus dialog and enter target path
+    focus_window(dlg_hwnd)?;
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    // Clear any default text and paste target path
+    let _ = crate::keyboard::combo_str("ctrl+a");
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    crate::clipboard::set_text(path)?;
+    let _ = crate::keyboard::combo_str("ctrl+v");
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    crate::keyboard::key_press("enter")?;
+
+    // Wait for dialog to dismiss
+    let dismiss_start = std::time::Instant::now();
+    while dismiss_start.elapsed().as_millis() < 2000 {
+        if let Ok(w) = find_window_by_hwnd(dlg_hwnd) {
+            if !w.is_visible { break; }
+        } else {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+
+    Ok(())
+}
+
 #[allow(dead_code)]
 fn _use_mem() { let _ = mem::size_of::<i32>(); }

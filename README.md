@@ -37,11 +37,11 @@ Run as a native stdio MCP server or synchronize schemas directly to Antigravity'
 # Start the stdio JSON-RPC 2.0 MCP server (auto-syncs schemas on startup)
 cu mcp
 
-# Force-sync all 46 tool schemas + instructions.md to ~/.gemini/antigravity-cli/mcp/computeruse
+# Force-sync all 47 tool schemas + instructions.md to ~/.gemini/antigravity-cli/mcp/computeruse
 cu mcp --sync
 ```
 
-### Available MCP Tools (46 Tools)
+### Available MCP Tools (47 Tools)
 
 | Category | Tools |
 |---|---|
@@ -50,7 +50,7 @@ cu mcp --sync
 | **Keyboard & Clipboard** | `cu_type`, `cu_key`, `cu_hotkey`, `cu_copy_selection`, `cu_clipboard_get`, `cu_clipboard_set`, `cu_clipboard_set_image` |
 | **Atomic Batch & Reactive Sync** | `cu_batch`, `cu_wait_for_change`, `cu_wait_for_text` |
 | **Vector Canvas Engine** | `cu_canvas_draw`, `cu_canvas_clear` |
-| **Window Management** | `cu_focus_window`, `cu_list_windows`, `cu_close_window`, `cu_maximize_window`, `cu_minimize_window`, `cu_snap_window` |
+| **Window Management** | `cu_focus_window`, `cu_list_windows`, `cu_close_window`, `cu_maximize_window`, `cu_minimize_window`, `cu_snap_window`, `cu_save_file_as` |
 | **System, Process & Audio** | `cu_launch_app`, `cu_list_processes`, `cu_kill_process`, `cu_resolve_association`, `cu_system_sound`, `cu_special_folder`, `cu_audio_beep`, `cu_audio_volume`, `cu_sysinfo`, `cu_sync_schemas` |
 
 ---

@@ -624,6 +624,18 @@ pub fn get_all_tools() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "cu_save_file_as",
+            "description": "Zero-roundtrip atomic macro for the standard Windows 'Save As' Common Item Dialog. Triggers Ctrl+S, detects dialog, pastes target path, and confirms with Enter.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Target absolute or relative file path to save" },
+                    "timeout_ms": { "type": "integer", "description": "Optional dialog timeout in milliseconds (default: 3000)" }
+                },
+                "required": ["path"]
+            }
+        }),
+        json!({
             "name": "cu_screenshot",
             "description": "Capture a screenshot of the active window, specific HWND, a specific SoM mark_id bounding box, canvas_only, or a custom screen region. Optionally saves directly to disk.",
             "inputSchema": {
@@ -1516,6 +1528,13 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             };
             let new_rect = window::snap_window(target_hwnd, position).map_err(|e| e.to_string())?;
             Ok(json!({ "success": true, "hwnd": target_hwnd, "position": position, "rect": new_rect }))
+        }
+
+        "cu_save_file_as" => {
+            let path = args.get("path").and_then(|v| v.as_str()).ok_or("Missing 'path' argument")?;
+            let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(3000);
+            window::save_file_dialog(path, timeout).map_err(|e| e.to_string())?;
+            Ok(json!({ "success": true, "saved_path": path }))
         }
 
         "cu_screenshot" => {

@@ -95,6 +95,7 @@ impl ComputerUse {
     pub fn close_window(hwnd: isize) -> Result<()> { window::close_window(hwnd) }
     pub fn move_resize_window(hwnd: isize, rect: Rect) -> Result<()> { window::move_resize_window(hwnd, rect) }
     pub fn snap_window(hwnd: isize, position: &str) -> Result<Rect> { window::snap_window(hwnd, position) }
+    pub fn save_file_as(path: &str, timeout_ms: u64) -> Result<()> { window::save_file_dialog(path, timeout_ms) }
     pub fn wait_for_window(title: &str, timeout_ms: u64) -> Result<WindowInfo> { window::wait_for_window(title, timeout_ms) }
     pub fn set_window_topmost(hwnd: isize, topmost: bool) -> Result<()> { window::set_topmost(hwnd, topmost) }
     pub fn set_window_opacity(hwnd: isize, alpha: u8) -> Result<()> { window::set_opacity(hwnd, alpha) }

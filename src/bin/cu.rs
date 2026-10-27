@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use computeruse::*;
+use base64::Engine;
 use serde_json::json;
 use std::io::{self, Read};
 
@@ -16,10 +17,13 @@ enum Commands {
     ScreenSize,
     /// List monitors
     Monitors,
-    /// Full screenshot (base64 png)
+    /// Full screenshot or targeted canvas/region crop (base64 png or save to file)
     Screenshot {
         #[arg(long)] monitor: Option<u32>,
         #[arg(long)] region: Option<String>, // x,y,w,h
+        #[arg(long)] canvas: bool,
+        #[arg(long)] hwnd: Option<isize>,
+        #[arg(long)] save: Option<String>,
     },
     /// Cursor position
     Cursor,
@@ -133,6 +137,8 @@ enum Commands {
     SystemSound { #[arg(default_value = "default")] sound: String },
     /// Window snap to screen edge/corner (left, right, top, bottom, top_left, top_right, bottom_left, bottom_right, center, maximize)
     SnapWindow { position: String, #[arg(long)] hwnd: Option<isize>, #[arg(long)] title: Option<String> },
+    /// Save As zero-roundtrip atomic macro: handles standard Windows file dialog
+    SaveAs { path: String, #[arg(long, default_value = "3000")] timeout: u64 },
     /// Window topmost pin
     WindowTopmost { hwnd: isize, #[arg(long)] disable: bool },
     /// Window opacity (0-255)
@@ -168,6 +174,73 @@ fn out(v: serde_json::Value) {
 fn err(e: CuError) {
     eprintln!("{}", serde_json::to_string(&json!({"error": e.to_string()})).unwrap());
     std::process::exit(1);
+}
+
+fn parse_compact_dsl(input: &str) -> Option<Vec<serde_json::Value>> {
+    let trimmed = input.trim();
+    if trimmed.starts_with('{') || trimmed.starts_with('[') {
+        return None;
+    }
+    let mut actions = Vec::new();
+    for stmt in trimmed.split([';', '\n']) {
+        let s = stmt.trim();
+        if s.is_empty() { continue; }
+        let (cmd, rest) = if s.len() > 1 && s.chars().nth(1) == Some(' ') {
+            (&s[..1], s[1..].trim())
+        } else if s.len() > 1 && !s.chars().nth(1).unwrap().is_alphanumeric() {
+            (&s[..1], s[1..].trim())
+        } else {
+            let split_pos = s.find(|c: char| c.is_whitespace() || c == ':').unwrap_or(s.len());
+            (&s[..split_pos], s[split_pos..].trim().trim_start_matches(':').trim())
+        };
+
+        match cmd.to_uppercase().as_str() {
+            "D" | "DRAG" => {
+                let parts: Vec<&str> = rest.split([',', ' ']).filter(|p| !p.is_empty()).collect();
+                if parts.len() >= 4 {
+                    if let (Ok(x1), Ok(y1), Ok(x2), Ok(y2)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>(), parts[2].parse::<i32>(), parts[3].parse::<i32>()) {
+                        actions.push(json!({"action": "drag", "x1": x1, "y1": y1, "x2": x2, "y2": y2}));
+                    }
+                }
+            }
+            "C" | "CLICK" => {
+                let parts: Vec<&str> = rest.split([',', ' ']).filter(|p| !p.is_empty()).collect();
+                if parts.len() >= 2 {
+                    if let (Ok(x), Ok(y)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                        actions.push(json!({"action": "click", "x": x, "y": y}));
+                    }
+                } else {
+                    actions.push(json!({"action": "click"}));
+                }
+            }
+            "M" | "MOVE" => {
+                let parts: Vec<&str> = rest.split([',', ' ']).filter(|p| !p.is_empty()).collect();
+                if parts.len() >= 2 {
+                    if let (Ok(x), Ok(y)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                        actions.push(json!({"action": "move", "x": x, "y": y}));
+                    }
+                }
+            }
+            "T" | "TYPE" => {
+                let text = rest.trim_matches('"').trim_matches('\'');
+                actions.push(json!({"action": "type", "text": text}));
+            }
+            "K" | "KEY" => {
+                actions.push(json!({"action": "key", "key": rest}));
+            }
+            "H" | "HOTKEY" => {
+                let combo = rest.trim_matches('"').trim_matches('\'');
+                actions.push(json!({"action": "hotkey", "hotkey": combo}));
+            }
+            "W" | "WAIT" => {
+                if let Ok(ms) = rest.parse::<u64>() {
+                    actions.push(json!({"action": "wait", "ms": ms}));
+                }
+            }
+            _ => {}
+        }
+    }
+    if actions.is_empty() { None } else { Some(actions) }
 }
 
 fn run_action(cmd: &serde_json::Value) -> serde_json::Value {
@@ -428,8 +501,22 @@ fn main() {
             Ok(m) => out(json!({"monitors": m})),
             Err(e) => err(e),
         },
-        Commands::Screenshot { monitor, region } => {
-            let res = if let Some(r) = region {
+        Commands::Screenshot { monitor, region, canvas, hwnd, save } => {
+            let res = if canvas {
+                let target_hwnd = hwnd.or_else(|| ComputerUse::foreground_window().ok().map(|w| w.hwnd)).unwrap_or(0);
+                match computeruse::DynamicCanvas::find_in_window(target_hwnd) {
+                    Ok(c) => {
+                        let rect = Rect {
+                            x: c.origin_x,
+                            y: c.origin_y,
+                            width: c.width.max(16),
+                            height: c.height.max(16),
+                        };
+                        ComputerUse::screenshot_region(rect, monitor)
+                    }
+                    Err(e) => Err(e),
+                }
+            } else if let Some(r) = region {
                 let parts: Vec<&str> = r.split(',').collect();
                 if parts.len() != 4 { err(CuError::InvalidArg("region x,y,w,h".into())); return; }
                 let rect = Rect {
@@ -443,7 +530,19 @@ fn main() {
                 ComputerUse::screenshot_full(monitor)
             };
             match res {
-                Ok(s) => out(json!({"width": s.width, "height": s.height, "monitor": s.monitor, "region": s.region, "png_base64": s.png_base64})),
+                Ok(s) => {
+                    if let Some(path) = save {
+                        match base64::engine::general_purpose::STANDARD.decode(&s.png_base64) {
+                            Ok(bytes) => match std::fs::write(&path, bytes) {
+                                Ok(_) => out(json!({"ok": true, "saved_path": path, "width": s.width, "height": s.height, "region": s.region})),
+                                Err(e) => err(CuError::Windows(format!("Failed to write {}: {}", path, e))),
+                            },
+                            Err(e) => err(CuError::Windows(format!("Failed to decode base64: {}", e))),
+                        }
+                    } else {
+                        out(json!({"width": s.width, "height": s.height, "monitor": s.monitor, "region": s.region, "png_base64": s.png_base64}))
+                    }
+                }
                 Err(e) => err(e),
             }
         }
@@ -718,6 +817,10 @@ fn main() {
                 Ok((h, r)) => out(json!({"ok": true, "hwnd": h, "position": position, "rect": r})),
                 Err(e) => err(e),
             }
+        }
+        Commands::SaveAs { path, timeout } => match ComputerUse::save_file_as(&path, timeout) {
+            Ok(_) => out(json!({"ok": true, "saved_path": path})),
+            Err(e) => err(e),
         },
         Commands::WindowTopmost { hwnd, disable } => match ComputerUse::set_window_topmost(hwnd, !disable) {
             Ok(_) => out(json!({"ok": true, "hwnd": hwnd, "topmost": !disable})),
@@ -728,7 +831,7 @@ fn main() {
             Err(e) => err(e),
         },
         Commands::Exec { json: j } => {
-            // read JSON from arg or stdin
+            // read JSON or compact DSL from arg or stdin
             let input = if let Some(s) = j {
                 s
             } else {
@@ -736,12 +839,15 @@ fn main() {
                 io::stdin().read_to_string(&mut s).ok();
                 s
             };
-            // parse as array of commands or single
-            let parsed: serde_json::Value = match serde_json::from_str(&input) {
-                Ok(v) => v,
-                Err(e) => { err(CuError::Json(e)); return; }
+            let cmds = if let Some(dsl_cmds) = parse_compact_dsl(&input) {
+                dsl_cmds
+            } else {
+                let parsed: serde_json::Value = match serde_json::from_str(&input) {
+                    Ok(v) => v,
+                    Err(e) => { err(CuError::Json(e)); return; }
+                };
+                if parsed.is_array() { parsed.as_array().cloned().unwrap_or_default() } else { vec![parsed] }
             };
-            let cmds = if parsed.is_array() { parsed.as_array().cloned().unwrap_or_default() } else { vec![parsed] };
             let mut results = Vec::new();
             for c in cmds {
                 results.push(run_action(&c));

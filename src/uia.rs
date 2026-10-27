@@ -96,11 +96,48 @@ pub fn find_by_name(name: &str) -> Result<Vec<UiElementInfo>> {
             return Ok(els.iter().map(to_info).collect());
         }
     }
+    // Fuzzy & Substring fallback walk if exact match yields nothing
+    if let Ok(walker) = automation.get_control_view_walker() {
+        let mut fuzzy_matches = Vec::new();
+        find_element_fuzzy_recursive(&fg_root, &walker, name, &mut fuzzy_matches, 0);
+        if !fuzzy_matches.is_empty() {
+            return Ok(fuzzy_matches.iter().map(to_info).collect());
+        }
+    }
+
     let root = automation.get_root_element().map_err(|e| CuError::Windows(e.to_string()))?;
     let els = root
-        .find_all(uiautomation::types::TreeScope::Descendants, &cond)
-        .map_err(|e| CuError::Windows(e.to_string()))?;
+        .find_all(uiautomation::types::TreeScope::Children, &cond)
+        .or_else(|_| fg_root.find_all(uiautomation::types::TreeScope::Descendants, &cond))
+        .unwrap_or_default();
     Ok(els.iter().map(to_info).collect())
+}
+
+fn find_element_fuzzy_recursive(
+    el: &uiautomation::core::UIElement,
+    walker: &uiautomation::core::UITreeWalker,
+    query: &str,
+    out: &mut Vec<uiautomation::core::UIElement>,
+    depth: usize,
+) {
+    if depth > 7 || out.len() >= 20 {
+        return;
+    }
+    let name = el.get_name().unwrap_or_default().to_lowercase();
+    let auto_id = el.get_automation_id().unwrap_or_default().to_lowercase();
+    let q = query.to_lowercase();
+    if (name.contains(&q) || auto_id.contains(&q)) && !name.is_empty() {
+        out.push(el.clone());
+    }
+    if let Ok(mut child) = walker.get_first_child(el) {
+        loop {
+            find_element_fuzzy_recursive(&child, walker, query, out, depth + 1);
+            match walker.get_next_sibling(&child) {
+                Ok(next) => child = next,
+                Err(_) => break,
+            }
+        }
+    }
 }
 
 pub fn find_by_automation_id(id: &str) -> Result<Vec<UiElementInfo>> {
@@ -120,8 +157,9 @@ pub fn find_by_automation_id(id: &str) -> Result<Vec<UiElementInfo>> {
     }
     let root = automation.get_root_element().map_err(|e| CuError::Windows(e.to_string()))?;
     let els = root
-        .find_all(uiautomation::types::TreeScope::Descendants, &cond)
-        .map_err(|e| CuError::Windows(e.to_string()))?;
+        .find_all(uiautomation::types::TreeScope::Children, &cond)
+        .or_else(|_| fg_root.find_all(uiautomation::types::TreeScope::Descendants, &cond))
+        .unwrap_or_default();
     Ok(els.iter().map(to_info).collect())
 }
 
@@ -138,9 +176,22 @@ pub fn click_by_name(name: &str) -> Result<UiElementInfo> {
     let el = if let Ok(found) = fg_root.find_first(uiautomation::types::TreeScope::Descendants, &cond) {
         found
     } else {
-        let root = automation.get_root_element().map_err(|e| CuError::Windows(e.to_string()))?;
-        root.find_first(uiautomation::types::TreeScope::Descendants, &cond)
-            .map_err(|e| CuError::Windows(e.to_string()))?
+        // Try fuzzy / substring match in foreground window
+        if let Ok(walker) = automation.get_control_view_walker() {
+            let mut matches = Vec::new();
+            find_element_fuzzy_recursive(&fg_root, &walker, name, &mut matches, 0);
+            if let Some(first) = matches.into_iter().next() {
+                first
+            } else {
+                let root = automation.get_root_element().map_err(|e| CuError::Windows(e.to_string()))?;
+                root.find_first(uiautomation::types::TreeScope::Descendants, &cond)
+                    .map_err(|e| CuError::Windows(e.to_string()))?
+            }
+        } else {
+            let root = automation.get_root_element().map_err(|e| CuError::Windows(e.to_string()))?;
+            root.find_first(uiautomation::types::TreeScope::Descendants, &cond)
+                .map_err(|e| CuError::Windows(e.to_string()))?
+        }
     };
     let click_res = el.click();
     let is_ok = click_res.is_ok()
