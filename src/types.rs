@@ -25,6 +25,7 @@ pub struct Monitor {
     pub index: u32,
     pub name: String,
     pub rect: Rect,
+    pub work_area: Rect,
     pub is_primary: bool,
     pub scale_factor: f64,
 }

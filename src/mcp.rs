@@ -298,6 +298,19 @@ pub fn get_all_tools() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "cu_long_click",
+            "description": "Hold down a mouse click for duration_ms before releasing (useful for press-and-hold menus, color pickers, and scrubbers).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "x": { "type": "integer", "description": "Optional X coordinate" },
+                    "y": { "type": "integer", "description": "Optional Y coordinate" },
+                    "button": { "type": "string", "enum": ["left", "right", "middle"], "default": "left" },
+                    "duration_ms": { "type": "integer", "description": "Hold duration in milliseconds (default: 500)", "default": 500 }
+                }
+            }
+        }),
+        json!({
             "name": "cu_drag_mark_to_mark",
             "description": "Drag directly from one Set-of-Marks element (from_mark) onto another (to_mark), optionally holding modifiers (e.g. ['ctrl'] or ['alt']).",
             "inputSchema": {
@@ -962,6 +975,23 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             let y = args.get("y").and_then(|v| v.as_i64()).map(|v| v as i32);
             match env.step(crate::AgentAction::TripleClick { mark_id, x, y }) {
                 Ok(res) => Ok(json!({ "success": res.success, "message": res.message })),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+
+        "cu_long_click" => {
+            let x = args.get("x").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let y = args.get("y").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let pt = if let (Some(x), Some(y)) = (x, y) { Some(Point { x, y }) } else { None };
+            let btn_str = args.get("button").and_then(|v| v.as_str()).unwrap_or("left");
+            let button = match btn_str {
+                "right" => MouseButton::Right,
+                "middle" => MouseButton::Middle,
+                _ => MouseButton::Left,
+            };
+            let duration_ms = args.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(500);
+            match mouse::long_click(button, pt, duration_ms) {
+                Ok(_) => Ok(json!({ "success": true, "duration_ms": duration_ms })),
                 Err(e) => Err(e.to_string()),
             }
         }

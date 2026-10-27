@@ -119,6 +119,13 @@ pub fn resolve_vk(name: &str) -> Option<u16> {
         "\\" | "backslash" | "|" => Some(0xDC),
         "`" | "backtick" | "tilde" | "~" => Some(0xC0),
         "apps" | "contextmenu" | "menu" => Some(0x5D),
+        "back" | "browser_back" => Some(0xA6),
+        "forward" | "browser_forward" => Some(0xA7),
+        "refresh" | "browser_refresh" => Some(0xA8),
+        "stop" | "browser_stop" => Some(0xA9),
+        "search" | "browser_search" => Some(0xAA),
+        "favorites" | "browser_favorites" => Some(0xAB),
+        "browser_home" => Some(0xAC),
         _ => None,
     }
 }

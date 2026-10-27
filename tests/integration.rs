@@ -327,3 +327,24 @@ fn system_file_association_and_sound() {
     let ratio = ComputerUse::count_color_ratio(reg, sample, 255).unwrap();
     assert!((ratio - 1.0).abs() < 1e-4);
 }
+
+#[test]
+fn work_area_and_long_click() {
+    let monitors = ComputerUse::list_monitors().unwrap();
+    assert!(!monitors.is_empty());
+    for m in &monitors {
+        assert!(m.work_area.width > 0 && m.work_area.height > 0);
+        // Work area should never exceed the total monitor rectangle
+        assert!(m.work_area.width <= m.rect.width);
+        assert!(m.work_area.height <= m.rect.height);
+    }
+
+    // Test long_click execution (short duration for fast test)
+    let cur = ComputerUse::cursor_position().unwrap();
+    let res = ComputerUse::long_click(MouseButton::Left, Some(cur), 20);
+    assert!(res.is_ok());
+
+    // Test browser navigation keys
+    let back_vk = computeruse::keyboard::resolve_vk("browser_back").unwrap();
+    assert_eq!(back_vk, 0xA6);
+}

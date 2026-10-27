@@ -61,6 +61,7 @@ impl ComputerUse {
     pub fn mouse_move_smooth(p: Point, duration_ms: u64) -> Result<()> { mouse::move_smooth(p, duration_ms) }
     pub fn mouse_move_relative(dx: i32, dy: i32) -> Result<Point> { mouse::move_relative(dx, dy) }
     pub fn click(btn: MouseButton, p: Option<Point>) -> Result<()> { mouse::click(btn, p) }
+    pub fn long_click(btn: MouseButton, p: Option<Point>, duration_ms: u64) -> Result<()> { mouse::long_click(btn, p, duration_ms) }
     pub fn click_modified(btn: MouseButton, p: Option<Point>, modifiers: &[String]) -> Result<()> { mouse::click_modified(btn, p, modifiers) }
     pub fn double_click(btn: MouseButton, p: Option<Point>) -> Result<()> { mouse::double_click(btn, p) }
     pub fn triple_click(btn: MouseButton, p: Option<Point>) -> Result<()> { mouse::triple_click(btn, p) }

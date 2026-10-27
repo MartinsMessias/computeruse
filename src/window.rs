@@ -196,10 +196,10 @@ pub fn snap_window(hwnd: isize, position: &str) -> Result<Rect> {
         .or_else(|| monitors.first())
         .ok_or_else(|| CuError::NotFound("no monitors".into()))?;
 
-    let mx = mon.rect.x;
-    let my = mon.rect.y;
-    let mw = mon.rect.width;
-    let mh = mon.rect.height;
+    let mx = mon.work_area.x;
+    let my = mon.work_area.y;
+    let mw = mon.work_area.width;
+    let mh = mon.work_area.height;
     let hw = mw / 2;
     let hh = mh / 2;
 

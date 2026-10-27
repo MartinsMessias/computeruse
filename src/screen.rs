@@ -31,6 +31,7 @@ pub fn list_monitors() -> Result<Vec<Monitor>> {
             mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
             if GetMonitorInfoW(hmon, &mut mi.monitorInfo).as_bool() {
                 let r = mi.monitorInfo.rcMonitor;
+                let wa = mi.monitorInfo.rcWork;
                 let primary = (mi.monitorInfo.dwFlags & 1) != 0;
                 let mut scale = 1.0f64;
                 let mut dpi_x = 0u32;
@@ -50,6 +51,12 @@ pub fn list_monitors() -> Result<Vec<Monitor>> {
                         y: r.top,
                         width: (r.right - r.left) as u32,
                         height: (r.bottom - r.top) as u32,
+                    },
+                    work_area: Rect {
+                        x: wa.left,
+                        y: wa.top,
+                        width: (wa.right - wa.left) as u32,
+                        height: (wa.bottom - wa.top) as u32,
                     },
                     is_primary: primary,
                     scale_factor: scale,

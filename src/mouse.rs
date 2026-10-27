@@ -156,6 +156,19 @@ pub fn move_smooth(to: Point, duration_ms: u64) -> Result<()> {
     Ok(())
 }
 
+/// Long click (hold mouse button down for `duration_ms` before release).
+/// Useful for opening press-and-hold menus, color pickers, or drag handles.
+pub fn long_click(btn: MouseButton, p: Option<Point>, duration_ms: u64) -> Result<()> {
+    if let Some(pt) = p {
+        move_to(pt)?;
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+    mouse_down(btn)?;
+    std::thread::sleep(std::time::Duration::from_millis(duration_ms.max(50)));
+    mouse_up(btn)?;
+    Ok(())
+}
+
 /// Click while holding keyboard modifiers (e.g. `["ctrl"]`, `["shift"]`, `["alt"]`).
 pub fn click_modified(btn: MouseButton, p: Option<Point>, modifiers: &[String]) -> Result<()> {
     if modifiers.is_empty() {
