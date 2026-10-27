@@ -91,6 +91,10 @@ enum Commands {
     UiaClick { name: String },
     /// UI Automation: children of window (hwnd 0 = root)
     UiaChildren { #[arg(long, default_value = "0")] hwnd: isize },
+    /// UI Automation: extract all visible text strings and values from window (hwnd 0 = foreground)
+    ReadWindowText { #[arg(long, default_value = "0")] hwnd: isize },
+    /// Scan active window for target RGB color
+    FindColor { r: u8, g: u8, b: u8, #[arg(long, default_value = "10")] tolerance: u8 },
     /// List processes
     Processes,
     /// Find process by name
@@ -607,6 +611,16 @@ fn main() {
         Commands::UiaChildren { hwnd } => match ComputerUse::uia_children(hwnd) {
             Ok(v) => out(json!({"children": v})), Err(e) => err(e),
         },
+        Commands::ReadWindowText { hwnd } => match ComputerUse::uia_read_window_text(hwnd) {
+            Ok(lines) => out(json!({"count": lines.len(), "lines": lines})), Err(e) => err(e),
+        },
+        Commands::FindColor { r, g, b, tolerance } => {
+            let reg = ComputerUse::foreground_window().map(|w| w.rect).unwrap_or(Rect { x: 0, y: 0, width: 800, height: 600 });
+            match ComputerUse::find_color_in_region(reg, (r, g, b), tolerance) {
+                Ok(pt) => out(json!({"found": pt.is_some(), "point": pt})),
+                Err(e) => err(e),
+            }
+        }
         Commands::Processes => match ComputerUse::list_processes() {
             Ok(v) => out(json!({"processes": v})), Err(e) => err(e),
         },
@@ -732,9 +746,12 @@ fn main() {
             };
             let mut env = ComputerUse::agent_env();
             let _ = env.observe();
-            match serde_json::from_str::<AgentAction>(&input) {
-                Ok(act) => match env.step(act) {
-                    Ok(res) => out(json!({"ok": true, "step": res})),
+            match serde_json::from_str::<serde_json::Value>(&input) {
+                Ok(val) => match AgentAction::from_flexible_json(&val) {
+                    Ok(act) => match env.step(act) {
+                        Ok(res) => out(json!({"ok": true, "step": res})),
+                        Err(e) => err(e),
+                    },
                     Err(e) => err(e),
                 },
                 Err(e) => err(CuError::Json(e)),
@@ -753,10 +770,13 @@ fn main() {
                     let trim = l.trim();
                     if trim.is_empty() { continue; }
                     if trim == "quit" || trim == "exit" { break; }
-                    match serde_json::from_str::<AgentAction>(trim) {
-                        Ok(act) => match env.step(act) {
-                            Ok(res) => println!("{}", json!({"event": "step", "result": res})),
-                            Err(e) => println!("{}", json!({"event": "step_error", "error": e.to_string()})),
+                    match serde_json::from_str::<serde_json::Value>(trim) {
+                        Ok(val) => match AgentAction::from_flexible_json(&val) {
+                            Ok(act) => match env.step(act) {
+                                Ok(res) => println!("{}", json!({"event": "step", "result": res})),
+                                Err(e) => println!("{}", json!({"event": "step_error", "error": e.to_string()})),
+                            },
+                            Err(e) => println!("{}", json!({"event": "parse_error", "error": e.to_string()})),
                         },
                         Err(e) => println!("{}", json!({"event": "parse_error", "error": e.to_string()})),
                     }
