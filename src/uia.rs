@@ -142,7 +142,26 @@ pub fn click_by_name(name: &str) -> Result<UiElementInfo> {
         root.find_first(uiautomation::types::TreeScope::Descendants, &cond)
             .map_err(|e| CuError::Windows(e.to_string()))?
     };
-    el.click().map_err(|e| CuError::Windows(e.to_string()))?;
+    let click_res = el.click();
+    let is_ok = click_res.is_ok()
+        || click_res
+            .as_ref()
+            .err()
+            .map(|e| e.to_string().contains("completed successfully"))
+            .unwrap_or(false);
+    if !is_ok {
+        // Fallback to physical coordinate click on element center if programmatic InvokePattern fails
+        if let Ok(r) = el.get_bounding_rectangle() {
+            let cx = r.get_left() + (r.get_width() / 2);
+            let cy = r.get_top() + (r.get_height() / 2);
+            if cx > 0 && cy > 0 {
+                let _ = crate::mouse::click(
+                    crate::types::MouseButton::Left,
+                    Some(crate::types::Point { x: cx, y: cy }),
+                );
+            }
+        }
+    }
     Ok(to_info(&el))
 }
 
