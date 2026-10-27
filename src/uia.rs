@@ -36,16 +36,23 @@ fn to_info(el: &uiautomation::core::UIElement) -> UiElementInfo {
 
 pub fn element_at_point(x: i32, y: i32) -> Result<UiElementInfo> {
     let automation = UIAutomation::new().map_err(|e| CuError::Windows(e.to_string()))?;
-    let el = automation
-        .element_from_point(uiautomation::types::Point::new(x, y))
-        .map_err(|e| CuError::Windows(e.to_string()))?;
-    Ok(to_info(&el))
+    for _ in 0..3 {
+        if let Ok(el) = automation.element_from_point(uiautomation::types::Point::new(x, y)) {
+            return Ok(to_info(&el));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(15));
+    }
+    let root = foreground_or_root(&automation)?;
+    Ok(to_info(&root))
 }
 
 pub fn focused_element() -> Result<UiElementInfo> {
     let automation = UIAutomation::new().map_err(|e| CuError::Windows(e.to_string()))?;
-    let el = automation.get_focused_element().map_err(|e| CuError::Windows(e.to_string()))?;
-    Ok(to_info(&el))
+    if let Ok(el) = automation.get_focused_element() {
+        return Ok(to_info(&el));
+    }
+    let root = foreground_or_root(&automation)?;
+    Ok(to_info(&root))
 }
 
 pub fn get_element_value(el: &uiautomation::core::UIElement) -> Option<String> {

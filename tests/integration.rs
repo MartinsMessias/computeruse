@@ -23,6 +23,9 @@ fn cursor_roundtrip() {
 
 #[test]
 fn clipboard_roundtrip() {
+    // 1. Test image clipboard first
+    ComputerUse::clipboard_set_image_from_region(Rect { x: 10, y: 10, width: 64, height: 64 }).unwrap();
+    // 2. Test text clipboard roundtrip sequentially so parallel threads don't overwrite the OS global clipboard
     let msg = "cu-test-123";
     ComputerUse::clipboard_set(msg).unwrap();
     let got = ComputerUse::clipboard_get().unwrap();
@@ -298,11 +301,4 @@ fn human_parity_scancodes_modifiers_and_image_clipboard() {
     assert!(matches!(AgentAction::from_flexible_json(&m1).unwrap(), AgentAction::ClickMark { mark_id: 4, modifiers: Some(ref mods) } if mods.len() == 2));
     assert!(matches!(AgentAction::from_flexible_json(&m2).unwrap(), AgentAction::DragMarkToMark { from_mark: 1, to_mark: 9, modifiers: Some(ref mods) } if mods[0] == "alt"));
     assert!(matches!(AgentAction::from_flexible_json(&m3).unwrap(), AgentAction::TripleClick { mark_id: Some(2), .. }));
-
-    // 3. Visual Image Clipboard (CF_BITMAP) + text restoration
-    let prev_txt = ComputerUse::clipboard_get().ok();
-    ComputerUse::clipboard_set_image_from_region(Rect { x: 10, y: 10, width: 64, height: 64 }).unwrap();
-    if let Some(old) = prev_txt {
-        let _ = ComputerUse::clipboard_set(&old);
-    }
 }
