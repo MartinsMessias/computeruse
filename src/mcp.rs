@@ -1048,9 +1048,19 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             }
         }
 
-        "cu_list_windows" => match window::list_windows(false) {
-            Ok(wins) => Ok(json!({ "windows": wins })),
-            Err(e) => Err(e.to_string()),
+        "cu_list_windows" => {
+            let include_all = args.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
+            match window::list_windows(!include_all) {
+                Ok(wins) => {
+                    let filtered: Vec<_> = if include_all {
+                        wins
+                    } else {
+                        wins.into_iter().filter(|w| !w.title.trim().is_empty() && w.rect.width > 10 && w.rect.height > 10).collect()
+                    };
+                    Ok(json!({ "count": filtered.len(), "windows": filtered }))
+                }
+                Err(e) => Err(e.to_string()),
+            }
         },
 
         "cu_close_window" => {
