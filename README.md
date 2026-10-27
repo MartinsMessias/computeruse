@@ -1,27 +1,62 @@
-# computeruse — Windows Computer-Use Library for LLMs
+# computeruse — OS-Native Symbiosis & MCP Server for Autonomous Agents
 
-A high-performance Rust library + CLI (`cu`) that exposes Windows desktop automation primitives
-in a form optimized for LLM agents: screenshots, mouse, keyboard, windows, UI Automation,
-audio/volume, system metrics, clipboard, and pixel inspection. All output is clean JSON.
+A high-performance Rust library, CLI (`cu`), and **Model Context Protocol (MCP) Server** (`cu mcp`) that exposes Windows desktop automation primitives engineered around the **4 Pillars of OS-Native Symbiosis**.
 
-## Features
+Instead of relying on slow, lossy 4K screenshot-to-pixel guessing loops, `computeruse` gives LLM agents direct structural perception, atomic macro execution, hardware-exact input injection, and event-driven UI synchronization.
 
-- **Robust Desktop Attachment**: Automatically connects background threads and agent sessions to the active input desktop (`OpenInputDesktop` / `SetThreadDesktop`), preventing `BitBlt` and cursor access errors.
-- **Screen & Display**: Multi-monitor support, primary monitor detection, DPI scaling awareness, full/region/window screenshots (base64 PNG), pixel color sampling.
-- **Mouse**: Move, relative move, left/right/middle click, double click, mouse down/up, drag-and-drop, vertical/horizontal scroll.
-- **Keyboard**: Unicode text typing (with configurable delay), key press/down/up, key combinations (`ctrl+shift+esc`), and media playback / volume keys.
-- **Window Management**: Enumerate visible/all windows, title search, focus/foreground, minimize, maximize, restore, close, move/resize, pin topmost, adjust opacity.
-- **UI Automation (UIA)**: Inspect accessibility element at point, find by name, get focused element, traverse window children, invoke clicks on UI elements directly.
-- **Audio Control**: Get/set master volume (0–100%), get/set mute, toggle mute.
-- **System & Power**: RAM stats (total, available, load %), CPU cores, system uptime, battery/power status, logical drives & disk space, workstation lock.
-- **Special Folders**: Resolve standard Windows paths (Desktop, Downloads, Documents, AppData, Temp, etc.).
-- **Process Management**: List processes, find by name, kill by PID or process name.
-- **Batch Execution**: Run sequences of actions in a single atomic invocation (`cu exec`).
+---
 
-## Build
+## Architecture: The 4 Pillars of OS-Native Symbiosis
+
+### 1. Pillar I — Hybrid Sub-Token Perception & Targeted Visual Crop
+- **Categorized Set-of-Marks (`cu_observe`)**: Traverses the Windows UI Automation (UIA) tree in milliseconds and compresses hundreds of elements into a `< 1.8 KB` categorized semantic digest (`Tools/Buttons`, `Palette/Items`, `Inputs/Controls`, `Menus/Other`) with smart 35-char truncation for passive items. Pass `verbose: true` only when raw bounding boxes are needed.
+- **Targeted Visual Crops (`cu_screenshot`)**: When visual verification is required, crop directly to a specific UI element (`mark_id`), only the drawing canvas (`canvas_only: true`), or a custom rectangle (`region: {x, y, width, height}`), with optional direct disk output (`save_path`, `omit_base64: true`).
+
+### 2. Pillar II — Atomic Transactions & Vector Macro-JIT
+- **Zero-Roundtrip Action Pipelines (`cu_batch`)**: Execute multi-step workflows (`click_mark`, `click_name`, `type`, `key`, `hotkey`, `scroll`, `focus_window`, `wait`, `wait_for_change`) in a single atomic call and receive the post-transaction `prompt_summary` and `ui_delta` immediately. Accepts flexible JSON schemas (`{"action": "..."}`, `{"type": "..."}`, or `{"ClickName": {...}}`).
+- **Parametric Vector Canvas Engine (`cu_canvas_draw`)**: Automatically detects the exact drawing surface (`DynamicCanvas`) inside apps like Windows 11 Paint and renders multi-layered geometric primitives (`gear`, `star`, `polygon`, `circle`, `spiral`, `line`, `rect`, `bezier`, `text`) with aspect-ratio compensation, WinUI3 Ribbon focus-recovery, and automatic closed-shape first-edge sealing.
+
+### 3. Pillar III — Per-Monitor DPI v2 & Virtual Desktop Input Fidelity
+- **Per-Monitor DPI v2**: Automatically activates `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` (`enable_per_monitor_dpi_v2`) and attaches threads to the active input desktop (`OpenInputDesktop` / `SetThreadDesktop`).
+- **Virtual Desktop Hardware Injection**: Normalizes `SendInput` coordinates across the full virtual desktop (`SM_XVIRTUALSCREEN`, `SM_YVIRTUALSCREEN`, `SM_CXVIRTUALSCREEN`, `SM_CYVIRTUALSCREEN`) with `MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE` for 1:1 physical accuracy across multi-monitor and negative-coordinate layouts.
+
+### 4. Pillar IV — Event-Driven Reactive Synchronization & State Delta
+- **Reactive UI Settling (`cu_wait_for_change`)**: Polls the foreground HWND, window title, and UIA element structure in `25ms` ticks, returning the instant a menu, popup, or window transition occurs instead of sleeping blindly.
+- **Structural Delta Verification (`UiDelta`)**: Every interactive step reports a `ui_delta` summary (e.g., `"UI tree updated (+12 interactive elements, total 64)"` or `"Window switched -> ..."`), allowing the agent to detect immediately whether a click succeeded.
+
+---
+
+## MCP Server (`cu mcp`)
+
+Run as a native stdio MCP server or synchronize schemas directly to Antigravity's MCP configuration directory:
+
+```sh
+# Start the stdio JSON-RPC 2.0 MCP server (auto-syncs schemas on startup)
+cu mcp
+
+# Force-sync all 30 tool schemas + instructions.md to ~/.gemini/antigravity-cli/mcp/computeruse
+cu mcp --sync
+```
+
+### Available MCP Tools (30 Tools)
+
+| Category | Tools |
+|---|---|
+| **Perception & Visual** | `cu_observe`, `cu_screenshot`, `cu_inspect_element_at` |
+| **Semantic & Mouse Input** | `cu_click_mark`, `cu_click_name`, `cu_click_rel`, `cu_click_coords`, `cu_double_click`, `cu_move`, `cu_drag`, `cu_drag_rel`, `cu_mouse_down`, `cu_mouse_up`, `cu_scroll` |
+| **Keyboard & Clipboard** | `cu_type`, `cu_key`, `cu_hotkey`, `cu_clipboard_get`, `cu_clipboard_set` |
+| **Atomic Batch & Reactive Sync** | `cu_batch`, `cu_wait_for_change` |
+| **Vector Canvas Engine** | `cu_canvas_draw`, `cu_canvas_clear` |
+| **Window Management** | `cu_focus_window`, `cu_list_windows`, `cu_close_window`, `cu_maximize_window`, `cu_minimize_window` |
+| **System, Process & Audio** | `cu_launch_app`, `cu_list_processes`, `cu_kill_process`, `cu_audio_beep`, `cu_audio_volume`, `cu_sysinfo`, `cu_sync_schemas` |
+
+---
+
+## Build & Test
 
 ```sh
 cd computeruse
+cargo test --test integration
 cargo build --release
 # binary: target/release/cu.exe
 ```

@@ -98,3 +98,105 @@ fn audio_volume_query() {
         assert!(vol <= 100);
     }
 }
+
+#[test]
+fn som_perception_snapshot() {
+    let mut env = AgentEnvironment::new();
+    let obs = env.observe().unwrap();
+    assert!(!obs.window_title.is_empty() || obs.window_hwnd == 0);
+    assert!(!obs.compact_prompt.is_empty());
+}
+
+#[test]
+fn dynamic_canvas_math_coordinates() {
+    let canvas = DynamicCanvas::new(Rect {
+        x: 100,
+        y: 200,
+        width: 1000,
+        height: 500,
+    });
+    assert!((canvas.aspect_ratio - 2.0).abs() < 0.01);
+    let center = canvas.pt(0.5, 0.5);
+    assert_eq!(center.x, 600);
+    assert_eq!(center.y, 450);
+
+    let polar = canvas.polar_pt(0.5, 0.5, 0.2, 0.0);
+    // (0.5 + 0.2/2.0) = 0.6 -> 100 + 600 = 700
+    assert_eq!(polar.x, 700);
+    assert_eq!(polar.y, 450);
+}
+
+#[test]
+fn pillar1_som_categorized_truncation() {
+    use computeruse::som::{InteractiveElement, SomSnapshot};
+    let snap = SomSnapshot {
+        hwnd: 1234,
+        title: "TestApp".into(),
+        window_rect: Rect { x: 0, y: 0, width: 800, height: 600 },
+        elements: vec![
+            InteractiveElement {
+                mark_id: 1,
+                name: "Submit".into(),
+                control_type: "Button".into(),
+                automation_id: "btnSubmit".into(),
+                rect: Rect { x: 10, y: 10, width: 80, height: 30 },
+                center: Point { x: 50, y: 25 },
+                rel_center: (0.06, 0.04),
+                is_enabled: true,
+            },
+            InteractiveElement {
+                mark_id: 2,
+                name: "Search Query".into(),
+                control_type: "Edit".into(),
+                automation_id: "txtSearch".into(),
+                rect: Rect { x: 100, y: 10, width: 200, height: 30 },
+                center: Point { x: 200, y: 25 },
+                rel_center: (0.25, 0.04),
+                is_enabled: true,
+            },
+            InteractiveElement {
+                mark_id: 3,
+                name: "This is a very long passive status text that exceeds thirty five characters".into(),
+                control_type: "Text".into(),
+                automation_id: "lblStatus".into(),
+                rect: Rect { x: 10, y: 500, width: 600, height: 20 },
+                center: Point { x: 310, y: 510 },
+                rel_center: (0.38, 0.85),
+                is_enabled: true,
+            },
+        ],
+    };
+    let digest = snap.to_compact_prompt();
+    assert!(digest.contains("Tools/Buttons (1): [01] \"Submit\" (50,25)"));
+    assert!(digest.contains("Inputs/Controls (1): [02] \"Search Query\" (200,25)"));
+    assert!(digest.contains("Menus/Other (1): [03] \"This is a very long passive stat...\" (310,510)"));
+}
+
+#[test]
+fn pillar2_flexible_batch_action_parsing() {
+    let a1 = serde_json::json!({"action": "click_name", "name": "File"});
+    let a2 = serde_json::json!({"type": "type", "text": "Hello World"});
+    let a3 = serde_json::json!({"ClickMark": {"mark_id": 7}});
+    let a4 = serde_json::json!({"type": "wait_for_change", "timeout_ms": 500});
+
+    assert!(matches!(AgentAction::from_flexible_json(&a1).unwrap(), AgentAction::ClickName { ref name } if name == "File"));
+    assert!(matches!(AgentAction::from_flexible_json(&a2).unwrap(), AgentAction::TypeText { ref text } if text == "Hello World"));
+    assert!(matches!(AgentAction::from_flexible_json(&a3).unwrap(), AgentAction::ClickMark { mark_id: 7 }));
+    assert!(matches!(AgentAction::from_flexible_json(&a4).unwrap(), AgentAction::WaitForChange { timeout_ms: 500 }));
+}
+
+#[test]
+fn pillar3_per_monitor_dpi_v2_and_virtual_desktop() {
+    computeruse::desktop::enable_per_monitor_dpi_v2();
+    let attached = computeruse::desktop::attach_thread_to_input_desktop();
+    assert!(attached.is_ok());
+}
+
+#[test]
+fn pillar4_reactive_wait_for_change() {
+    let mut env = AgentEnvironment::new().with_settle_delay(10);
+    let (delta, obs, elapsed) = env.wait_for_change(60).unwrap();
+    assert!(elapsed >= 20);
+    assert!(!obs.compact_prompt.is_empty());
+    assert!(!delta.summary.is_empty());
+}

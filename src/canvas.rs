@@ -1,6 +1,4 @@
 use std::f64::consts::PI;
-use std::thread;
-use std::time::Duration;
 use crate::error::Result;
 use crate::mouse;
 use crate::types::{MouseButton, Point, Rect};
@@ -92,9 +90,7 @@ impl DynamicCanvas {
     pub fn stroke_line(&self, from_rx: f64, from_ry: f64, to_rx: f64, to_ry: f64) -> Result<()> {
         let p1 = self.pt(from_rx, from_ry);
         let p2 = self.pt(to_rx, to_ry);
-        mouse::drag(p1, p2, MouseButton::Left)?;
-        thread::sleep(Duration::from_millis(15));
-        Ok(())
+        mouse::stroke_continuous(&[p1, p2], MouseButton::Left)
     }
 
     /// Draws a continuous polyline connecting multiple normalized points.
@@ -102,13 +98,17 @@ impl DynamicCanvas {
         if points.len() < 2 {
             return Ok(());
         }
-        for i in 0..points.len() - 1 {
-            let p1 = self.pt(points[i].0, points[i].1);
-            let p2 = self.pt(points[i + 1].0, points[i + 1].1);
-            mouse::drag(p1, p2, MouseButton::Left)?;
-            thread::sleep(Duration::from_millis(5));
+        let mut screen_pts: Vec<Point> = points.iter().map(|&(rx, ry)| self.pt(rx, ry)).collect();
+        // Repeat the first edge at the end so if Paint consumes the very first drag to focus the canvas, the closing stroke redraws it 100%!
+        if screen_pts.len() >= 3 {
+            let p0 = screen_pts[0];
+            let p_last = screen_pts[screen_pts.len() - 1];
+            if p0.x == p_last.x && p0.y == p_last.y {
+                let p1 = screen_pts[1];
+                screen_pts.push(p1);
+            }
         }
-        Ok(())
+        mouse::stroke_continuous(&screen_pts, MouseButton::Left)
     }
 
     /// Draws a smooth cubic Bézier curve between (p0) and (p3) with control points (p1) and (p2).

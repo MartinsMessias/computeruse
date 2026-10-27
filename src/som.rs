@@ -32,31 +32,75 @@ pub struct SomSnapshot {
 }
 
 impl SomSnapshot {
-    /// Formats the elements into a high-density, low-token representation for LLM prompt context.
+    /// Formats the elements into a high-density, categorized representation for ultra-fast LLM comprehension.
     pub fn to_compact_prompt(&self) -> String {
         let mut out = format!(
-            "Window: \"{}\" [HWND={}] Bounds: {}x{} at ({}, {})\nInteractive Targets (Set-of-Marks):\n",
+            "Window: \"{}\" [HWND={}] Bounds: {}x{} at ({}, {})\n",
             self.title, self.hwnd, self.window_rect.width, self.window_rect.height, self.window_rect.x, self.window_rect.y
         );
 
+        let mut tools_and_buttons = Vec::new();
+        let mut palette_items = Vec::new();
+        let mut inputs = Vec::new();
+        let mut menus_and_other = Vec::new();
+
         for el in &self.elements {
-            out.push_str(&format!(
-                "  [{:02}] {:<12} \"{}\" at ({:.2}, {:.2}) | w:{} h:{}\n",
-                el.mark_id,
-                el.control_type,
-                el.name,
-                el.rel_center.0,
-                el.rel_center.1,
-                el.rect.width,
-                el.rect.height
-            ));
+            if el.control_type == "Group" || el.control_type == "Window" {
+                continue;
+            }
+            let entry = format!("[{:02}] \"{}\" ({},{})", el.mark_id, el.name, el.center.x, el.center.y);
+            match el.control_type.as_str() {
+                "ListItem" => palette_items.push(entry),
+                "Button" | "RadioButton" | "SplitButton" | "CheckBox" => tools_and_buttons.push(entry),
+                "Edit" | "Document" | "ComboBox" | "Spinner" | "Slider" => inputs.push(entry),
+                _ => {
+                    // Truncate overly long feed/guide descriptions to avoid token bloat
+                    let short_name = if el.name.chars().count() > 35 {
+                        let prefix: String = el.name.chars().take(32).collect();
+                        format!("{}...", prefix)
+                    } else {
+                        el.name.clone()
+                    };
+                    menus_and_other.push(format!("[{:02}] \"{}\" ({},{})", el.mark_id, short_name, el.center.x, el.center.y));
+                }
+            }
+        }
+
+        if !tools_and_buttons.is_empty() {
+            out.push_str(&format!("Tools/Buttons ({}): {}\n", tools_and_buttons.len(), tools_and_buttons.join(" | ")));
+        }
+        if !palette_items.is_empty() {
+            out.push_str(&format!("Palette/Items ({}): {}\n", palette_items.len(), palette_items.join(" | ")));
+        }
+        if !inputs.is_empty() {
+            out.push_str(&format!("Inputs/Controls ({}): {}\n", inputs.len(), inputs.join(" | ")));
+        }
+        if !menus_and_other.is_empty() {
+            out.push_str(&format!("Menus/Other ({}): {}\n", menus_and_other.len(), menus_and_other.join(" | ")));
         }
         out
     }
 
-    /// Finds the first element whose name contains the search substring (case-insensitive).
+    /// Finds the best matching element by name or automation_id (prefers exact match and non-Group controls first).
     pub fn find_by_name(&self, name_substr: &str) -> Option<&InteractiveElement> {
         let q = name_substr.to_lowercase();
+        // 1. Exact name or automation_id match on non-Group controls (Button, RadioButton, ListItem, etc.)
+        if let Some(el) = self.elements.iter().find(|el| {
+            (el.name.to_lowercase() == q || el.automation_id.to_lowercase() == q) && el.control_type != "Group"
+        }) {
+            return Some(el);
+        }
+        // 2. Exact name match
+        if let Some(el) = self.elements.iter().find(|el| el.name.to_lowercase() == q) {
+            return Some(el);
+        }
+        // 3. Substring match on non-Group controls
+        if let Some(el) = self.elements.iter().find(|el| {
+            (el.name.to_lowercase().contains(&q) || el.automation_id.to_lowercase().contains(&q)) && el.control_type != "Group"
+        }) {
+            return Some(el);
+        }
+        // 4. Fallback substring match
         self.elements.iter().find(|el| el.name.to_lowercase().contains(&q))
     }
 

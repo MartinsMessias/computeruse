@@ -136,7 +136,11 @@ enum Commands {
     /// Interactive Agent REPL loop (reads JSON action on stdin, emits JSON observation on stdout)
     Repl,
     /// Run as a standard Model Context Protocol (MCP) server over stdio
-    Mcp,
+    Mcp {
+        /// Synchronize all MCP tool schemas directly to disk and exit
+        #[arg(long)]
+        sync: bool,
+    },
 }
 
 fn btn(s: &str) -> MouseButton {
@@ -759,7 +763,19 @@ fn main() {
                 }
             }
         }
-        Commands::Mcp => {
+        Commands::Mcp { sync } => {
+            if sync {
+                match computeruse::mcp::sync_all_mcp_schemas() {
+                    Ok(n) => {
+                        println!("Successfully synced {} MCP schemas to Antigravity directory.", n);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to sync MCP schemas: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
             if let Err(e) = computeruse::mcp::run_mcp_server() {
                 eprintln!("[computeruse-mcp] Error: {}", e);
                 std::process::exit(1);

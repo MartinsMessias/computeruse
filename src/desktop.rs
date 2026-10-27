@@ -3,15 +3,30 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::System::StationsAndDesktops::{
     CloseDesktop, OpenInputDesktop, SetThreadDesktop, DESKTOP_ACCESS_FLAGS, DESKTOP_CONTROL_FLAGS,
 };
+use windows::Win32::UI::HiDpi::{
+    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+};
 
 static DESKTOP_ATTACHED: AtomicBool = AtomicBool::new(false);
+static DPI_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 const DESKTOP_GENERIC_ACCESS: u32 = 0x01FF;
+
+/// Enables Per-Monitor DPI Awareness V2 for the current process so all Win32 and UIA coordinates
+/// map 1:1 to true physical pixels without Windows bitmap virtualization distortion.
+pub fn enable_per_monitor_dpi_v2() {
+    if !DPI_INITIALIZED.swap(true, Ordering::SeqCst) {
+        unsafe {
+            let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+    }
+}
 
 /// Attempt to attach the calling thread to the currently active input desktop (e.g. "Default").
 /// This is critical when running from service or background processes where the thread
 /// is not attached to the interactive desktop by default.
 pub fn attach_thread_to_input_desktop() -> Result<()> {
+    enable_per_monitor_dpi_v2();
     unsafe {
         let desk = OpenInputDesktop(
             DESKTOP_CONTROL_FLAGS(0),
