@@ -129,11 +129,17 @@ impl ComputerUse {
     pub fn find_color_in_region(region: Rect, target_rgb: (u8, u8, u8), tolerance: u8) -> Result<Option<Point>> {
         pixel::find_color_in_region(region, target_rgb, tolerance)
     }
+    pub fn count_color_ratio(region: Rect, target_rgb: (u8, u8, u8), tolerance: u8) -> Result<f64> {
+        pixel::count_color_ratio(region, target_rgb, tolerance)
+    }
     pub fn region_visual_checksum(region: Rect) -> Result<u64> {
         pixel::region_visual_checksum(region)
     }
     // Launch
     pub fn launch(target: &str, params: Option<&str>) -> Result<()> { launch::launch(target, params) }
+    pub fn launch_with_dir(target: &str, params: Option<&str>, working_dir: Option<&str>) -> Result<()> {
+        launch::launch_with_dir(target, params, working_dir)
+    }
     // Process
     pub fn list_processes() -> Result<Vec<process::ProcessInfo>> { process::list_processes() }
     pub fn find_process(name: &str) -> Result<process::ProcessInfo> { process::find_process(name) }

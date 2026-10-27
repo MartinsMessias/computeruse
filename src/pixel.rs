@@ -112,6 +112,37 @@ pub fn find_color_in_region(
     Ok(None)
 }
 
+/// Counts the percentage (0.0 .. 1.0) of pixels in `region` matching `target_rgb` within `tolerance`.
+pub fn count_color_ratio(
+    region: Rect,
+    target_rgb: (u8, u8, u8),
+    tolerance: u8,
+) -> Result<f64> {
+    let w = region.width.max(1);
+    let h = region.height.max(1);
+    let total_pixels = (w * h) as f64;
+    let buf = capture_raw_bgra(region)?;
+    let (tr, tg, tb) = target_rgb;
+    let tol = tolerance as i32;
+    let mut matched = 0usize;
+
+    for y in 0..h {
+        for x in 0..w {
+            let idx = ((y * w + x) * 4) as usize;
+            let b = buf[idx] as i32;
+            let g = buf[idx + 1] as i32;
+            let r = buf[idx + 2] as i32;
+            if (r - tr as i32).abs() <= tol
+                && (g - tg as i32).abs() <= tol
+                && (b - tb as i32).abs() <= tol
+            {
+                matched += 1;
+            }
+        }
+    }
+    Ok((matched as f64) / total_pixels)
+}
+
 /// Computes a fast 64-bit FNV-1a visual fingerprint of a screen region (strided every 4th pixel).
 pub fn region_visual_checksum(region: Rect) -> Result<u64> {
     let buf = capture_raw_bgra(region)?;

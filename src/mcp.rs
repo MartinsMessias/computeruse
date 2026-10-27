@@ -670,6 +670,30 @@ pub fn get_all_tools() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "cu_count_color_ratio",
+            "description": "Calculate the proportion (0.0 to 1.0) and pixel count of target RGB [r, g, b] in a screen region (useful for visual verification, loading spinners, state badges, canvas fills).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "r": { "type": "integer", "description": "Red channel (0..255)" },
+                    "g": { "type": "integer", "description": "Green channel (0..255)" },
+                    "b": { "type": "integer", "description": "Blue channel (0..255)" },
+                    "tolerance": { "type": "integer", "description": "Per-channel tolerance (default: 10)", "default": 10 },
+                    "region": {
+                        "type": "object",
+                        "description": "Optional region {x, y, width, height}. Defaults to active window.",
+                        "properties": {
+                            "x": { "type": "integer" },
+                            "y": { "type": "integer" },
+                            "width": { "type": "integer" },
+                            "height": { "type": "integer" }
+                        }
+                    }
+                },
+                "required": ["r", "g", "b"]
+            }
+        }),
+        json!({
             "name": "cu_clipboard_get",
             "description": "Read text from the Windows clipboard.",
             "inputSchema": {
@@ -695,7 +719,8 @@ pub fn get_all_tools() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "app": { "type": "string", "description": "Application executable or path" },
-                    "params": { "type": "string", "description": "Optional command line parameters" }
+                    "params": { "type": "string", "description": "Optional command line parameters" },
+                    "working_dir": { "type": "string", "description": "Optional working directory path" }
                 },
                 "required": ["app"]
             }
@@ -1566,6 +1591,27 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             Ok(json!({ "found": found.is_some(), "point": found, "region": region }))
         }
 
+        "cu_count_color_ratio" => {
+            let r = args.get("r").and_then(|v| v.as_u64()).unwrap_or(0).min(255) as u8;
+            let g = args.get("g").and_then(|v| v.as_u64()).unwrap_or(0).min(255) as u8;
+            let b = args.get("b").and_then(|v| v.as_u64()).unwrap_or(0).min(255) as u8;
+            let tol = args.get("tolerance").and_then(|v| v.as_u64()).unwrap_or(10).min(255) as u8;
+            let region = if let Some(reg_obj) = args.get("region").and_then(|v| v.as_object()) {
+                Rect {
+                    x: reg_obj.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                    y: reg_obj.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                    width: reg_obj.get("width").and_then(|v| v.as_u64()).unwrap_or(400).max(1) as u32,
+                    height: reg_obj.get("height").and_then(|v| v.as_u64()).unwrap_or(400).max(1) as u32,
+                }
+            } else {
+                window::foreground_window().map(|w| w.rect).unwrap_or(Rect { x: 0, y: 0, width: 800, height: 600 })
+            };
+            let ratio = crate::pixel::count_color_ratio(region, (r, g, b), tol).map_err(|e| e.to_string())?;
+            let total_pixels = region.width * region.height;
+            let matching_pixels = (ratio * (total_pixels as f64)).round() as u64;
+            Ok(json!({ "ratio": ratio, "matching_pixels": matching_pixels, "total_pixels": total_pixels, "region": region }))
+        }
+
         "cu_clipboard_get" => match clipboard::get_text() {
             Ok(t) => Ok(json!({ "clipboard": t })),
             Err(e) => Err(e.to_string()),
@@ -1582,7 +1628,8 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
         "cu_launch_app" => {
             let app = args.get("app").and_then(|v| v.as_str()).unwrap_or("");
             let params = args.get("params").and_then(|v| v.as_str());
-            launch::launch(app, params).map_err(|e| e.to_string())?;
+            let working_dir = args.get("working_dir").and_then(|v| v.as_str());
+            launch::launch_with_dir(app, params, working_dir).map_err(|e| e.to_string())?;
             Ok(json!({ "success": true, "launched": app }))
         }
 

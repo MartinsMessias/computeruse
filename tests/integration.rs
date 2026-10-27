@@ -320,4 +320,10 @@ fn system_file_association_and_sound() {
     let fg = ComputerUse::foreground_window().unwrap();
     let snapped = ComputerUse::snap_window(fg.hwnd, "center");
     assert!(snapped.is_ok());
+
+    // Color ratio test
+    let sample = ComputerUse::get_pixel(Point { x: 50, y: 50 }).unwrap();
+    let reg = Rect { x: 45, y: 45, width: 20, height: 20 };
+    let ratio = ComputerUse::count_color_ratio(reg, sample, 255).unwrap();
+    assert!((ratio - 1.0).abs() < 1e-4);
 }
