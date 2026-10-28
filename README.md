@@ -37,15 +37,25 @@ Run as a native stdio MCP server or synchronize schemas directly to Antigravity'
 # Start the stdio JSON-RPC 2.0 MCP server (auto-syncs schemas on startup)
 cu mcp
 
-# Force-sync all 47 tool schemas + instructions.md to ~/.gemini/antigravity-cli/mcp/computeruse
+# Force-sync all 48 tool schemas + instructions.md to ~/.gemini/antigravity-cli/mcp/computeruse
 cu mcp --sync
 ```
 
-### Available MCP Tools (47 Tools)
+### Protocol Capabilities (MCP 2024-11-05 Spec)
+- **Tools (48 Tools)**: Suporte completo a execução atômica, set-of-marks e macros de automação.
+- **Resources**: Leitura reativa de estado em tempo real sem chamadas de ferramentas:
+  - `desktop://windows`: Janelas visíveis e coordenadas ativas.
+  - `desktop://sysinfo`: Telemetria de CPU, memória RAM, uptime e energia.
+  - `desktop://monitors`: Monitores, resoluções, DPI v2 e áreas úteis (`work_area`).
+  - `desktop://clipboard`: Conteúdo atual da área de transferência do Windows.
+- **Prompts**: Template de instrução operacional do sistema (`desktop_autonomous_operator`).
+- **Multi-Content Rendering**: `cu_screenshot` emite o bloco nativo `{"type": "image", "data": "...", "mimeType": "image/png"}` para clientes visuais modernos sem poluir o bloco de texto com base64.
+
+### Available MCP Tools (48 Tools)
 
 | Category | Tools |
 |---|---|
-| **Perception & Visual** | `cu_observe`, `cu_read_window_text`, `cu_screenshot`, `cu_find_color`, `cu_count_color_ratio`, `cu_inspect_element_at` |
+| **Perception & Visual** | `cu_observe`, `cu_find_element`, `cu_read_window_text`, `cu_screenshot`, `cu_find_color`, `cu_count_color_ratio`, `cu_inspect_element_at` |
 | **Semantic & Mouse Input** | `cu_click_mark`, `cu_right_click_mark`, `cu_hover_mark`, `cu_fill_mark`, `cu_drag_mark_to_mark`, `cu_click_name`, `cu_click_rel`, `cu_click_coords`, `cu_double_click`, `cu_triple_click`, `cu_long_click`, `cu_move`, `cu_drag`, `cu_drag_rel`, `cu_mouse_down`, `cu_mouse_up`, `cu_scroll` |
 | **Keyboard & Clipboard** | `cu_type`, `cu_key`, `cu_hotkey`, `cu_copy_selection`, `cu_clipboard_get`, `cu_clipboard_set`, `cu_clipboard_set_image` |
 | **Atomic Batch & Reactive Sync** | `cu_batch`, `cu_wait_for_change`, `cu_wait_for_text` |

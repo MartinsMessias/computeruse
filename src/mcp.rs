@@ -167,6 +167,10 @@ pub fn run_mcp_server() -> Result<()> {
             },
             "tools/list" => handle_tools_list(id),
             "tools/call" => handle_tools_call(id, req.params.unwrap_or(Value::Null), &mut env),
+            "resources/list" => handle_resources_list(id),
+            "resources/read" => handle_resources_read(id, req.params.unwrap_or(Value::Null)),
+            "prompts/list" => handle_prompts_list(id),
+            "prompts/get" => handle_prompts_get(id, req.params.unwrap_or(Value::Null)),
             other => {
                 eprintln!("[computeruse-mcp] Unhandled method: {}", other);
                 JsonRpcResponse {
@@ -199,14 +203,162 @@ fn handle_initialize(id: Value) -> JsonRpcResponse {
             "capabilities": {
                 "tools": {
                     "listChanged": true
-                }
+                },
+                "resources": {
+                    "subscribe": false,
+                    "listChanged": true
+                },
+                "prompts": {
+                    "listChanged": false
+                },
+                "logging": {}
             },
             "serverInfo": {
                 "name": "computeruse",
-                "version": "0.2.0"
+                "version": "0.3.0"
             }
         })),
         error: None,
+    }
+}
+
+fn handle_resources_list(id: Value) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0",
+        id,
+        result: Some(json!({
+            "resources": [
+                {
+                    "uri": "desktop://windows",
+                    "name": "Visible Windows",
+                    "description": "Live list of all top-level visible desktop windows and coordinates",
+                    "mimeType": "application/json"
+                },
+                {
+                    "uri": "desktop://sysinfo",
+                    "name": "System Health & Power",
+                    "description": "Live CPU cores, RAM load, uptime, and battery power status",
+                    "mimeType": "application/json"
+                },
+                {
+                    "uri": "desktop://monitors",
+                    "name": "Monitors & Work Areas",
+                    "description": "Connected monitor geometries, taskbar-aware work areas, and DPI scale factors",
+                    "mimeType": "application/json"
+                },
+                {
+                    "uri": "desktop://clipboard",
+                    "name": "Clipboard Content",
+                    "description": "Current text content stored in the system clipboard",
+                    "mimeType": "text/plain"
+                }
+            ]
+        })),
+        error: None,
+    }
+}
+
+fn handle_resources_read(id: Value, params: Value) -> JsonRpcResponse {
+    let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
+    let (text, mime_type) = match uri {
+        "desktop://windows" => {
+            let win = window::list_windows(true).unwrap_or_default();
+            (serde_json::to_string_pretty(&win).unwrap_or_default(), "application/json")
+        }
+        "desktop://sysinfo" => {
+            let sys = system::get_system_info().unwrap_or(crate::types::SystemInfo {
+                os_name: "Windows".into(),
+                cpu_cores: 1,
+                total_memory_mb: 0,
+                available_memory_mb: 0,
+                memory_load_percent: 0,
+                uptime_seconds: 0,
+                battery_percent: None,
+                is_charging: None,
+            });
+            (serde_json::to_string_pretty(&sys).unwrap_or_default(), "application/json")
+        }
+        "desktop://monitors" => {
+            let mons = screen::list_monitors().unwrap_or_default();
+            (serde_json::to_string_pretty(&mons).unwrap_or_default(), "application/json")
+        }
+        "desktop://clipboard" => {
+            let clip = clipboard::get_text().unwrap_or_default();
+            (clip, "text/plain")
+        }
+        other => {
+            return JsonRpcResponse {
+                jsonrpc: "2.0",
+                id,
+                result: None,
+                error: Some(json!({
+                    "code": -32602,
+                    "message": format!("Resource not found: {}", other)
+                })),
+            };
+        }
+    };
+
+    JsonRpcResponse {
+        jsonrpc: "2.0",
+        id,
+        result: Some(json!({
+            "contents": [{
+                "uri": uri,
+                "mimeType": mime_type,
+                "text": text
+            }]
+        })),
+        error: None,
+    }
+}
+
+fn handle_prompts_list(id: Value) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0",
+        id,
+        result: Some(json!({
+            "prompts": [
+                {
+                    "name": "desktop_autonomous_operator",
+                    "description": "High-efficiency system instructions for operating Windows apps with minimal token overhead and the 4 Pillars."
+                }
+            ]
+        })),
+        error: None,
+    }
+}
+
+fn handle_prompts_get(id: Value, params: Value) -> JsonRpcResponse {
+    let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    if name == "desktop_autonomous_operator" {
+        JsonRpcResponse {
+            jsonrpc: "2.0",
+            id,
+            result: Some(json!({
+                "description": "Guidelines for autonomous desktop interaction",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": "Operate the Windows desktop using the 4 Pillars: always prefer cu_observe or cu_read_window_text over full screenshots. Use cu_batch for multi-step sequences. Crop screenshots to marks or canvas to save tokens."
+                        }
+                    }
+                ]
+            })),
+            error: None,
+        }
+    } else {
+        JsonRpcResponse {
+            jsonrpc: "2.0",
+            id,
+            result: None,
+            error: Some(json!({
+                "code": -32602,
+                "message": format!("Prompt not found: {}", name)
+            })),
+        }
     }
 }
 
@@ -220,6 +372,18 @@ pub fn get_all_tools() -> Vec<Value> {
                 "properties": {
                     "verbose": { "type": "boolean", "description": "Optional: set true to include full raw marks array with bounding boxes", "default": false }
                 }
+            }
+        }),
+        json!({
+            "name": "cu_find_element",
+            "description": "Fuzzy and substring search for UI elements in the active window or desktop. Matches control names and automation IDs with case-insensitivity.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Fuzzy string or substring to search for (e.g. 'brush', 'save', 'close')" },
+                    "limit": { "type": "integer", "description": "Maximum number of matches to return (default: 10)" }
+                },
+                "required": ["query"]
             }
         }),
         json!({
@@ -897,6 +1061,14 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                 },
                 Err(e) => Err(e.to_string()),
             }
+        },
+
+        "cu_find_element" => {
+            let query = args.get("query").and_then(|v| v.as_str()).ok_or("Missing 'query' argument")?;
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+            let elements = uia::find_by_name(query).map_err(|e| e.to_string())?;
+            let truncated: Vec<_> = elements.into_iter().take(limit).collect();
+            Ok(json!({ "count": truncated.len(), "elements": truncated }))
         },
 
         "cu_click_mark" => {
@@ -1759,17 +1931,37 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
     })();
 
     match result {
-        Ok(data) => JsonRpcResponse {
-            jsonrpc: "2.0",
-            id,
-            result: Some(json!({
-                "content": [{
+        Ok(data) => {
+            let mut content = Vec::new();
+            if let Some(png_b64) = data.get("png_base64").and_then(|v| v.as_str()) {
+                content.push(json!({
+                    "type": "image",
+                    "data": png_b64,
+                    "mimeType": "image/png"
+                }));
+                let mut meta = data.clone();
+                if let Some(obj) = meta.as_object_mut() {
+                    obj.remove("png_base64");
+                }
+                content.push(json!({
+                    "type": "text",
+                    "text": serde_json::to_string_pretty(&meta).unwrap()
+                }));
+            } else {
+                content.push(json!({
                     "type": "text",
                     "text": serde_json::to_string_pretty(&data).unwrap()
-                }],
-                "isError": false
-            })),
-            error: None,
+                }));
+            }
+            JsonRpcResponse {
+                jsonrpc: "2.0",
+                id,
+                result: Some(json!({
+                    "content": content,
+                    "isError": false
+                })),
+                error: None,
+            }
         },
         Err(err_msg) => JsonRpcResponse {
             jsonrpc: "2.0",
