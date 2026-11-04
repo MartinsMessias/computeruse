@@ -23,7 +23,8 @@
 ## Canonical Links
 
 - [GitHub Repository](https://github.com/MartinsMessias/computeruse)
-- [README & Documentation](https://github.com/MartinsMessias/computeruse/blob/main/README.md)
+- [README & MCP Usage Guide](https://github.com/MartinsMessias/computeruse/blob/main/README.md)
+- [Architecture & The 4 Pillars (`docs/ARCHITECTURE.md`)](https://github.com/MartinsMessias/computeruse/blob/main/docs/ARCHITECTURE.md)
 - [Full LLM Technical Reference (`llms-full.txt`)](https://raw.githubusercontent.com/MartinsMessias/computeruse/main/llms-full.txt)
 - [AI Agent Engineering Playbook (`AGENTS.md`)](https://github.com/MartinsMessias/computeruse/blob/main/AGENTS.md)
 
