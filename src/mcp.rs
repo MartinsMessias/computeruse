@@ -685,7 +685,7 @@ pub fn get_all_tools() -> Vec<Value> {
         }),
         json!({
             "name": "cu_canvas_draw",
-            "description": "HIGH-PERFORMANCE VECTOR DRAWING: Execute multi-layered geometric artwork on any window's drawing surface (gears, stars, spirals, polygons, lines, text, bezier curves) in a single atomic tool call.",
+            "description": "HIGH-PERFORMANCE VECTOR DRAWING: Execute multi-layered geometric artwork on any window's drawing surface (crescent, arc, polyline, fill, gears, stars, spirals, polygons, circles, lines, text, bezier curves) in a single atomic tool call.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -694,7 +694,7 @@ pub fn get_all_tools() -> Vec<Value> {
                     "color": { "type": "string", "description": "Optional initial color to select (e.g. 'Red', 'Gold', 'Turquoise', 'Purple', 'Orange', 'Green')" },
                     "commands": {
                         "type": "array",
-                        "description": "List of geometric actions to execute. Types: 'gear', 'star', 'polygon', 'circle', 'spiral', 'line', 'rect', 'bezier', 'text'",
+                        "description": "List of geometric actions to execute. Types: 'crescent', 'arc', 'polyline', 'fill', 'gear', 'star', 'polygon', 'circle', 'spiral', 'line', 'rect', 'bezier', 'text', 'dots', 'select_color', 'select_tool'",
                         "items": { "type": "object" }
                     }
                 },
@@ -711,10 +711,11 @@ pub fn get_all_tools() -> Vec<Value> {
         }),
         json!({
             "name": "cu_batch",
-            "description": "Execute a pipeline of actions atomically in one call (supports click_mark, click_name, type, key, hotkey, scroll, focus_window, wait, wait_for_change) and return the final UI state.",
+            "description": "Execute a pipeline of actions atomically in one call without intermediate UIA re-scan overhead (supports click_mark, click_name, type, key, hotkey, scroll, focus_window, wait, wait_for_change) and return the final UI state.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "hwnd": { "type": "integer", "description": "Optional target window HWND to lock perception onto before running the batch" },
                     "actions": {
                         "type": "array",
                         "items": { "type": "object" },
@@ -1321,8 +1322,8 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                 keyboard::paste_text(&text).map_err(|e| e.to_string())?;
                 Ok(json!({ "success": true, "message": format!("Pasted {} chars via clipboard", text.len()) }))
             } else {
-                match env.step(crate::AgentAction::TypeText { text }) {
-                    Ok(res) => Ok(json!({ "success": res.success, "message": res.message })),
+                match env.step_fast(crate::AgentAction::TypeText { text }) {
+                    Ok(msg) => Ok(json!({ "success": true, "message": msg })),
                     Err(e) => Err(e.to_string()),
                 }
             }
@@ -1330,16 +1331,16 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
 
         "cu_key" => {
             let key = args.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            match env.step(crate::AgentAction::KeyPress { key }) {
-                Ok(res) => Ok(json!({ "success": res.success, "message": res.message })),
+            match env.step_fast(crate::AgentAction::KeyPress { key }) {
+                Ok(msg) => Ok(json!({ "success": true, "message": msg })),
                 Err(e) => Err(e.to_string()),
             }
         }
 
         "cu_hotkey" => {
             let combo = args.get("combo").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            match env.step(crate::AgentAction::HotkeyStr { combo }) {
-                Ok(res) => Ok(json!({ "success": res.success, "message": res.message })),
+            match env.step_fast(crate::AgentAction::HotkeyStr { combo }) {
+                Ok(msg) => Ok(json!({ "success": true, "message": msg })),
                 Err(e) => Err(e.to_string()),
             }
         }
@@ -1353,8 +1354,8 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             let modifiers = args.get("modifiers").and_then(|v| v.as_array()).map(|arr| {
                 arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect()
             });
-            match env.step(crate::AgentAction::Scroll { amount, horizontal, mark_id, x, y, modifiers }) {
-                Ok(res) => Ok(json!({ "success": res.success, "message": res.message })),
+            match env.step_fast(crate::AgentAction::Scroll { amount, horizontal, mark_id, x, y, modifiers }) {
+                Ok(msg) => Ok(json!({ "success": true, "message": msg })),
                 Err(e) => Err(e.to_string()),
             }
         }
@@ -1455,9 +1456,9 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                 let _ = window::focus_window(hwnd);
                 std::thread::sleep(std::time::Duration::from_millis(120));
 
-                // Auto-observe if last_som is missing or belongs to another window
+                // Auto-observe target window if last_som is missing or belongs to another window
                 if env.last_som().map(|s| s.hwnd) != Some(hwnd) {
-                    let _ = env.observe();
+                    let _ = env.observe_target(Some(hwnd), None);
                 }
 
                 // Select tool if requested, or auto-select Pencil in Paint if no tool specified
@@ -1490,7 +1491,7 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                     Err(e) => Err(format!("Could not detect canvas in window HWND {}: {}", hwnd, e)),
                     Ok(canvas) => {
                         let mut drawn_count = 0;
-                        if let Some(cmds) = args.get("commands").and_then(|v| v.as_array()) {
+                        if let Some(cmds) = args.get("commands").or_else(|| args.get("shapes")).and_then(|v| v.as_array()) {
                             for cmd in cmds {
                                 let cmd_type = cmd.get("type").or_else(|| cmd.get("action")).and_then(|v| v.as_str()).unwrap_or("");
                                 
@@ -1505,6 +1506,61 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                                 }
 
                                 match cmd_type {
+                                    "fill" => {
+                                        let fx = cmd.get("x").or_else(|| cmd.get("cx")).and_then(|v| v.as_f64()).unwrap_or(0.5);
+                                        let fy = cmd.get("y").or_else(|| cmd.get("cy")).and_then(|v| v.as_f64()).unwrap_or(0.5);
+                                        if let Some(ref som) = env.last_som() {
+                                            if let Some(fill_el) = som.find_by_name("Fill") {
+                                                let _ = mouse::click(MouseButton::Left, Some(fill_el.center));
+                                                std::thread::sleep(std::time::Duration::from_millis(80));
+                                            }
+                                            let pt = canvas.pt(fx, fy);
+                                            // First click transfers focus from WinUI 3 Ribbon to Canvas; second click (+8px outside SM_CXDOUBLECLK) pours the Fill bucket
+                                            let _ = mouse::click(MouseButton::Left, Some(pt));
+                                            std::thread::sleep(std::time::Duration::from_millis(55));
+                                            let _ = mouse::click(MouseButton::Left, Some(Point { x: pt.x + 8, y: pt.y }));
+                                            std::thread::sleep(std::time::Duration::from_millis(80));
+                                            if let Some(pencil_el) = som.find_by_name("Pencil") {
+                                                let _ = mouse::click(MouseButton::Left, Some(pencil_el.center));
+                                                std::thread::sleep(std::time::Duration::from_millis(80));
+                                            }
+                                        }
+                                        drawn_count += 1;
+                                    }
+                                    "crescent" | "moon" => {
+                                        let cx = cmd.get("cx").and_then(|v| v.as_f64()).unwrap_or(0.5);
+                                        let cy = cmd.get("cy").and_then(|v| v.as_f64()).unwrap_or(0.5);
+                                        let radius = cmd.get("radius").or_else(|| cmd.get("r")).and_then(|v| v.as_f64()).unwrap_or(0.32);
+                                        let thickness = cmd.get("thickness").and_then(|v| v.as_f64()).unwrap_or(0.45);
+                                        let rot = cmd.get("rot").or_else(|| cmd.get("rotation")).and_then(|v| v.as_f64()).unwrap_or(-0.35);
+                                        let _ = canvas.stroke_crescent(cx, cy, radius, thickness, rot);
+                                        drawn_count += 1;
+                                    }
+                                    "arc" => {
+                                        let cx = cmd.get("cx").and_then(|v| v.as_f64()).unwrap_or(0.5);
+                                        let cy = cmd.get("cy").and_then(|v| v.as_f64()).unwrap_or(0.5);
+                                        let radius = cmd.get("radius").or_else(|| cmd.get("r")).and_then(|v| v.as_f64()).unwrap_or(0.25);
+                                        let start_rad = cmd.get("start_rad").or_else(|| cmd.get("start")).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                        let end_rad = cmd.get("end_rad").or_else(|| cmd.get("end")).and_then(|v| v.as_f64()).unwrap_or(std::f64::consts::PI);
+                                        let steps = cmd.get("steps").and_then(|v| v.as_u64()).unwrap_or(36) as usize;
+                                        let _ = canvas.stroke_arc(cx, cy, radius, start_rad, end_rad, steps);
+                                        drawn_count += 1;
+                                    }
+                                    "polyline" => {
+                                        if let Some(pts_arr) = cmd.get("points").and_then(|v| v.as_array()) {
+                                            let pts: Vec<(f64, f64)> = pts_arr.iter().filter_map(|p| {
+                                                if let Some(a) = p.as_array() {
+                                                    Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?))
+                                                } else if let Some(o) = p.as_object() {
+                                                    Some((o.get("x")?.as_f64()?, o.get("y")?.as_f64()?))
+                                                } else {
+                                                    None
+                                                }
+                                            }).collect();
+                                            let _ = canvas.stroke_polyline(&pts);
+                                            drawn_count += 1;
+                                        }
+                                    }
                                     "gear" => {
                                         let cx = cmd.get("cx").and_then(|v| v.as_f64()).unwrap_or(0.5);
                                         let cy = cmd.get("cy").and_then(|v| v.as_f64()).unwrap_or(0.5);
@@ -1538,7 +1594,8 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                                         let cx = cmd.get("cx").and_then(|v| v.as_f64()).unwrap_or(0.5);
                                         let cy = cmd.get("cy").and_then(|v| v.as_f64()).unwrap_or(0.5);
                                         let radius = cmd.get("radius").or_else(|| cmd.get("r")).and_then(|v| v.as_f64()).unwrap_or(0.2);
-                                        let _ = canvas.stroke_polygon(cx, cy, radius, 48, 0.0);
+                                        let sides = cmd.get("sides").or_else(|| cmd.get("segments")).and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+                                        let _ = canvas.stroke_polygon(cx, cy, radius, sides, 0.0);
                                         drawn_count += 1;
                                     }
                                     "spiral" => {
@@ -1636,20 +1693,43 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
         }
 
         "cu_batch" => {
+            if let Some(target_hwnd) = args.get("hwnd").and_then(|v| v.as_i64()).map(|h| h as isize) {
+                if target_hwnd != 0 {
+                    let _ = window::focus_window(target_hwnd);
+                    if env.last_som().map(|s| s.hwnd) != Some(target_hwnd) {
+                        let _ = env.observe_target(Some(target_hwnd), None);
+                    }
+                }
+            }
             let actions = args.get("actions").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            let mut results = Vec::new();
+            let total = actions.len();
+            let mut results = Vec::with_capacity(total);
             let mut final_prompt = String::new();
             let mut final_window = String::new();
-            for act_val in actions {
+            for (idx, act_val) in actions.into_iter().enumerate() {
                 let act = crate::AgentAction::from_flexible_json(&act_val).map_err(|e| e.to_string())?;
-                let res = env.step(act).map_err(|e| e.to_string())?;
-                final_prompt = res.observation.compact_prompt.clone();
-                final_window = res.observation.window_title.clone();
-                results.push(json!({
-                    "success": res.success,
-                    "message": res.message,
-                    "ui_delta": res.delta.summary
-                }));
+                let is_last = idx + 1 == total;
+                let is_wait = matches!(act, crate::AgentAction::Wait { .. } | crate::AgentAction::WaitForChange { .. } | crate::AgentAction::WaitForText { .. });
+                if is_last || matches!(act, crate::AgentAction::WaitForChange { .. } | crate::AgentAction::WaitForText { .. }) {
+                    let res = env.step(act).map_err(|e| e.to_string())?;
+                    final_prompt = res.observation.compact_prompt.clone();
+                    final_window = res.observation.window_title.clone();
+                    results.push(json!({
+                        "success": res.success,
+                        "message": res.message,
+                        "ui_delta": res.delta.summary
+                    }));
+                } else {
+                    let msg = env.step_fast(act).map_err(|e| e.to_string())?;
+                    if !is_wait {
+                        std::thread::sleep(std::time::Duration::from_millis(35));
+                    }
+                    results.push(json!({
+                        "success": true,
+                        "message": msg,
+                        "ui_delta": "fast-path (skipped intermediate UIA scan)"
+                    }));
+                }
             }
             Ok(json!({
                 "success": true,

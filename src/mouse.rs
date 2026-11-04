@@ -282,27 +282,27 @@ pub fn stroke_continuous(pts: &[Point], btn: MouseButton) -> Result<()> {
             continue;
         }
         move_to(p1)?;
-        std::thread::sleep(std::time::Duration::from_millis(35));
+        std::thread::sleep(std::time::Duration::from_millis(18));
         mouse_down(btn)?;
-        std::thread::sleep(std::time::Duration::from_millis(45));
+        std::thread::sleep(std::time::Duration::from_millis(24));
 
         let dx = (p2.x - p1.x) as f64;
         let dy = (p2.y - p1.y) as f64;
         let dist = (dx * dx + dy * dy).sqrt();
-        let steps = ((dist / 10.0).ceil() as usize).clamp(8, 25);
+        let steps = ((dist / 10.0).ceil() as usize).clamp(6, 20);
 
         for s in 1..=steps {
             let t = s as f64 / steps as f64;
             let x = (p1.x as f64 + dx * t).round() as i32;
             let y = (p1.y as f64 + dy * t).round() as i32;
             move_to(Point { x, y })?;
-            std::thread::sleep(std::time::Duration::from_millis(5));
+            std::thread::sleep(std::time::Duration::from_millis(4));
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(30));
+        std::thread::sleep(std::time::Duration::from_millis(18));
         mouse_up(btn)?;
         // Pause between segments so Paint commits the stroke and never triggers a double-click at the shared vertex
-        std::thread::sleep(std::time::Duration::from_millis(35));
+        std::thread::sleep(std::time::Duration::from_millis(18));
     }
     Ok(())
 }

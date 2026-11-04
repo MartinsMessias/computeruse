@@ -200,6 +200,51 @@ impl DynamicCanvas {
         self.stroke_polyline(&pts)
     }
 
+    /// Draws a closed mathematical crescent moon centered at (cx, cy) with outer `radius`
+    /// and `thickness` (0.2 .. 0.8), rotated by `rotation` radians.
+    pub fn stroke_crescent(
+        &self,
+        cx: f64,
+        cy: f64,
+        radius: f64,
+        thickness: f64,
+        rotation: f64,
+    ) -> Result<()> {
+        let steps = 16usize;
+        let mut pts = Vec::with_capacity(steps * 2 + 3);
+        let half_span = 0.72 * PI; // ~130 degrees each side -> 260 degree outer crescent
+
+        // 1. Outer arc from -half_span to +half_span
+        for i in 0..=steps {
+            let t = i as f64 / steps as f64;
+            let local_a = -half_span + t * (2.0 * half_span);
+            let angle = rotation + local_a;
+            let rx = cx + (radius / self.aspect_ratio) * angle.cos();
+            let ry = cy + radius * angle.sin();
+            pts.push((rx, ry));
+        }
+
+        // 2. Inner concave elliptical arc returning from +half_span back to -half_span
+        let x_tip = radius * half_span.cos();
+        let y_tip = radius * half_span.sin();
+        let x_belly = x_tip + (radius - x_tip) * (1.0 - thickness.clamp(0.25, 0.75));
+        for i in 1..steps {
+            let u = 1.0 - 2.0 * (i as f64 / steps as f64); // +1.0 -> -1.0
+            let r_local_x = x_tip + (x_belly - x_tip) * (1.0 - u * u).max(0.0).sqrt();
+            let r_local_y = y_tip * u;
+            let rot_x = r_local_x * rotation.cos() - r_local_y * rotation.sin();
+            let rot_y = r_local_x * rotation.sin() + r_local_y * rotation.cos();
+            let rx = cx + (rot_x / self.aspect_ratio);
+            let ry = cy + rot_y;
+            pts.push((rx, ry));
+        }
+        if let Some(&first) = pts.first() {
+            pts.push(first);
+        }
+
+        self.stroke_polyline(&pts)
+    }
+
     /// Draws an Archimedean spiral.
     pub fn stroke_spiral(
         &self,

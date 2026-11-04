@@ -338,8 +338,23 @@ impl AgentEnvironment {
         }
     }
 
+    /// Executes a single atomic action without post-action settle delay or full UIA tree re-observation.
+    /// Ideal for intermediate steps inside `cu_batch` pipelines or fire-and-forget MCP tools (`cu_key`, `cu_type`, `cu_hotkey`),
+    /// avoiding 300-600ms of redundant COM UIA tree traversal per sub-step.
+    pub fn step_fast(&mut self, action: AgentAction) -> Result<String> {
+        let prev_settle = self.settle_delay_ms;
+        self.settle_delay_ms = 0;
+        let res = self.step_internal(action, false);
+        self.settle_delay_ms = prev_settle;
+        res.map(|r| r.message)
+    }
+
     /// Executes a single atomic action decided by the LLM and returns the new observation.
     pub fn step(&mut self, action: AgentAction) -> Result<StepResult> {
+        self.step_internal(action, true)
+    }
+
+    fn step_internal(&mut self, action: AgentAction, observe_after: bool) -> Result<StepResult> {
         let (prev_hwnd, prev_title, prev_marks) = self.last_som.as_ref()
             .map(|s| (s.hwnd, s.title.clone(), s.elements.len()))
             .unwrap_or((0, String::new(), 0));
@@ -598,6 +613,9 @@ impl AgentEnvironment {
             AgentAction::FocusWindow { title } => {
                 let win = window::find_window(&title)?;
                 window::focus_window(win.hwnd)?;
+                if !observe_after && self.last_som.as_ref().map(|s| s.hwnd) != Some(win.hwnd) {
+                    let _ = self.observe_target(Some(win.hwnd), None);
+                }
                 message = format!("Focused window HWND={} \"{}\"", win.hwnd, win.title);
             }
 
@@ -645,6 +663,26 @@ impl AgentEnvironment {
                 message = format!("MISSION FAILED: {}", reason);
                 is_terminal = true;
             }
+        }
+
+        if !observe_after {
+            let dummy_obs = Observation {
+                window_title: prev_title,
+                window_hwnd: prev_hwnd,
+                window_rect: self.last_som.as_ref().map(|s| s.window_rect).unwrap_or(Rect { x: 0, y: 0, width: 0, height: 0 }),
+                is_maximized: false,
+                cursor_pos: Point { x: 0, y: 0 },
+                clipboard_preview: None,
+                marks: Vec::new(),
+                compact_prompt: String::new(),
+            };
+            return Ok(StepResult {
+                success: true,
+                message,
+                is_terminal,
+                observation: dummy_obs,
+                delta: UiDelta::default(),
+            });
         }
 
         // Settling time for Windows UI animations and event queue
