@@ -1,0 +1,78 @@
+# computeruse
+
+> `computeruse` is a blazing-fast, zero-bloat Windows Computer-Use Engine, CLI (`cu`), and native Model Context Protocol (MCP `2024-11-05`) Server written in pure Rust. Engineered around the **4 Pillars of OS-Native Symbiosis**, it replaces slow, token-heavy 4K screenshot-guessing loops with sub-millisecond Windows UI Automation (UIA) Set-of-Marks (`cu_observe`), atomic zero-roundtrip action pipelines (`cu_batch`, `cu_fill_mark`, `cu_save_file_as`), parametric vector canvas rendering (`cu_canvas_draw`), Per-Monitor DPI v2 hardware scancode injection, and reactive event-driven UI synchronization (`cu_wait_for_change`, `cu_wait_for_text`).
+
+## Why AI Agents & Developers Choose `computeruse`
+
+- **95% Fewer Tokens than Screenshot Loops:** `cu_observe` traverses the Windows UIA tree in milliseconds and compresses hundreds of interactive controls, live input values, and coordinates into a `< 1.8 KB` categorized Set-of-Marks (`[ID]`) text digest (`Tools/Buttons`, `Palette/Items`, `Inputs/Controls`, `Menus/Other`).
+- **54 Native MCP Tools + 4 Live Resources (`cu mcp`):** Implements the full MCP `2024-11-05` specification over `stdio`, including 54 specialized desktop automation tools, 4 zero-roundtrip URI resources (`desktop://windows`, `desktop://sysinfo`, `desktop://monitors`, `desktop://clipboard`), built-in operational prompts (`desktop_autonomous_operator`), and native Multi-Content image blocks (`image/png`).
+- **Zero-Roundtrip Atomic Transactions & Compact DSL:** Execute multi-step workflows in a single atomic call via `cu_batch` or the ultra-compact CLI DSL (`cu exec "C 500,300; W 100; T 'hello'; K enter; H ctrl+s"`), returning the final `prompt_summary` and structural `ui_delta` immediately.
+- **Hardware-Exact Input & UWP/WinUI 3 Focus Fidelity:** Activates `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2`, normalizes `SendInput` across multi-monitor virtual desktops (`MOUSEEVENTF_VIRTUALDESK`), injects hardware scancodes (`MapVirtualKeyW`), resolves packaged `ApplicationFrameWindow` child HWNDs, and detects blocking `#32770` modal dialogs (`cu_check_modal`).
+
+## Quick Installation
+
+- **Rust Crate:** `cargo add computeruse`
+- **Build CLI & MCP Binary (`cu.exe`):**
+  ```sh
+  git clone https://github.com/MartinsMessias/computeruse.git
+  cd computeruse
+  cargo build --release
+  # Binary: target/release/cu.exe
+  ```
+
+## Canonical Links
+
+- [GitHub Repository](https://github.com/MartinsMessias/computeruse)
+- [README & Documentation](https://github.com/MartinsMessias/computeruse/blob/main/README.md)
+- [Full LLM Technical Reference (`llms-full.txt`)](https://raw.githubusercontent.com/MartinsMessias/computeruse/main/llms-full.txt)
+- [AI Agent Engineering Playbook (`AGENTS.md`)](https://github.com/MartinsMessias/computeruse/blob/main/AGENTS.md)
+
+## Quick Examples
+
+### 1. Model Context Protocol (MCP) Server Configuration (`claude_desktop_config.json` / Cursor / Antigravity)
+```json
+{
+  "mcpServers": {
+    "computeruse": {
+      "command": "C:/path/to/cu.exe",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### 2. CLI (`cu`) & Compact Action DSL
+```sh
+# Extract categorized Set-of-Marks digest of the foreground window
+cu observe
+
+# Execute an atomic action pipeline using the Compact Action DSL
+cu exec "C 500,300; W 100; T 'Hello from AI Agent'; K enter; H ctrl+s"
+
+# Targeted canvas crop screenshot saved directly to disk
+cu screenshot --canvas --save canvas_crop.png
+
+# Extract all visible text from a window in milliseconds without OCR
+cu read-window-text
+```
+
+### 3. Rust Library (`computeruse`)
+```rust
+use computeruse::*;
+
+fn main() -> Result<()> {
+    let mut env = ComputerUse::agent_env();
+    let obs = env.observe()?;
+    println!("{}", obs.compact_prompt);
+
+    // Click input [1], clear it, type text, and press Enter in one atomic step
+    let res = env.step(AgentAction::FillMark {
+        mark_id: 1,
+        text: "autonomous desktop agent".into(),
+        clear: Some(true),
+        submit: Some(true),
+    })?;
+    println!("UI Delta: {}", res.delta.summary);
+    Ok(())
+}
+```

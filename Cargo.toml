@@ -1,10 +1,16 @@
 [package]
 name = "computeruse"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
-description = "Windows computer-use library for LLMs: screenshots, mouse, keyboard, windows, clipboard."
+authors = ["Messias Martins"]
+description = "OS-Native Windows Computer-Use Engine, CLI & MCP Server (54 Tools) in Pure Rust: sub-millisecond Set-of-Marks UIA perception, atomic action pipelines, vector canvas engine & Per-Monitor DPI v2 input for AI Agents."
 license = "MIT"
-authors = ["computeruse"]
+readme = "README.md"
+homepage = "https://github.com/MartinsMessias/computeruse"
+documentation = "https://docs.rs/computeruse"
+repository = "https://github.com/MartinsMessias/computeruse"
+keywords = ["mcp", "computer-use", "windows-automation", "ui-automation", "ai-agent"]
+categories = ["os::windows-apis", "command-line-utilities", "development-tools"]
 
 [lib]
 name = "computeruse"

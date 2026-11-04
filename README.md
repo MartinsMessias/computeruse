@@ -1,8 +1,16 @@
 # computeruse — OS-Native Symbiosis & MCP Server for Autonomous Agents
 
+[![CI](https://github.com/MartinsMessias/computeruse/actions/workflows/ci.yml/badge.svg)](https://github.com/MartinsMessias/computeruse/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![MCP 2024-11-05](https://img.shields.io/badge/MCP-2024--11--05%20(54%20Tools)-green.svg)](#mcp-server-cu-mcp)
+[![Platform: Windows](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6.svg)](https://github.com/MartinsMessias/computeruse)
+[![LLM Context](https://img.shields.io/badge/LLMs-llms.txt%20%7C%20llms--full.txt-purple.svg)](llms.txt)
+
 A high-performance Rust library, CLI (`cu`), and **Model Context Protocol (MCP) Server** (`cu mcp`) that exposes Windows desktop automation primitives engineered around the **4 Pillars of OS-Native Symbiosis**.
 
 Instead of relying on slow, lossy 4K screenshot-to-pixel guessing loops, `computeruse` gives LLM agents direct structural perception, atomic macro execution, hardware-exact input injection, and event-driven UI synchronization.
+
+> **For AI Agents & LLM Indexers:** Read [`llms.txt`](llms.txt) for a concise overview, [`llms-full.txt`](llms-full.txt) for the complete 54-tool & API reference, and [`AGENTS.md`](AGENTS.md) for the engineering playbook.
 
 ---
 
