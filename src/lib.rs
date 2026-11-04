@@ -55,6 +55,9 @@ impl ComputerUse {
     pub fn screenshot_all_monitors() -> Result<Screenshot> { screen::screenshot_all_monitors() }
     pub fn cursor_position() -> Result<Point> { screen::cursor_position() }
     pub fn set_cursor_position(p: Point) -> Result<()> { screen::set_cursor_position(p) }
+    pub fn wait_for_screen_change(region: Option<Rect>, timeout_ms: u64, poll_interval_ms: u64) -> Result<bool> {
+        screen::wait_for_screen_change(region, timeout_ms, poll_interval_ms)
+    }
 
     // Mouse
     pub fn mouse_move(p: Point) -> Result<()> { mouse::move_to(p) }
@@ -96,6 +99,7 @@ impl ComputerUse {
     pub fn move_resize_window(hwnd: isize, rect: Rect) -> Result<()> { window::move_resize_window(hwnd, rect) }
     pub fn snap_window(hwnd: isize, position: &str) -> Result<Rect> { window::snap_window(hwnd, position) }
     pub fn save_file_as(path: &str, timeout_ms: u64) -> Result<()> { window::save_file_dialog(path, timeout_ms) }
+    pub fn get_blocking_modal(target_hwnd: isize) -> Result<Option<WindowInfo>> { window::get_blocking_modal(target_hwnd) }
     pub fn wait_for_window(title: &str, timeout_ms: u64) -> Result<WindowInfo> { window::wait_for_window(title, timeout_ms) }
     pub fn set_window_topmost(hwnd: isize, topmost: bool) -> Result<()> { window::set_topmost(hwnd, topmost) }
     pub fn set_window_opacity(hwnd: isize, alpha: u8) -> Result<()> { window::set_opacity(hwnd, alpha) }

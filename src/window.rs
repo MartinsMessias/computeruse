@@ -108,21 +108,71 @@ pub fn foreground_window() -> Result<WindowInfo> {
 
 pub fn focus_window(hwnd: isize) -> Result<()> {
     unsafe {
-        let h = HWND(hwnd as *mut _);
+        let mut h = HWND(hwnd as *mut _);
+        if !IsWindow(Some(h)).as_bool() {
+            return Err(CuError::NotFound(format!("hwnd {}", hwnd)));
+        }
+
+        // Resolucao inteligente de UWP/WinUI 3: se a janela for um container ApplicationFrameWindow,
+        // procuramos o HWND da janela filha real (CoreWindow ou processo empacotado) para foco garantido.
+        let mut cls_buf = [0u16; 64];
+        let clen = GetClassNameW(h, &mut cls_buf).max(0) as usize;
+        let cls_name = String::from_utf16_lossy(&cls_buf[..clen]);
+        if cls_name == "ApplicationFrameWindow" {
+            unsafe extern "system" fn enum_child(child: HWND, lparam: LPARAM) -> windows::core::BOOL {
+                if IsWindowVisible(child).as_bool() {
+                    let out = &mut *(lparam.0 as *mut HWND);
+                    *out = child;
+                    return windows::core::BOOL(0); // para no primeiro filho visivel
+                }
+                windows::core::BOOL(1)
+            }
+            let mut real_child = HWND::default();
+            let ptr = &mut real_child as *mut HWND;
+            use windows::Win32::UI::WindowsAndMessaging::EnumChildWindows;
+            let _ = EnumChildWindows(Some(h), Some(enum_child), LPARAM(ptr as isize));
+            if !real_child.0.is_null() {
+                h = real_child;
+            }
+        }
+
         if IsIconic(h).as_bool() {
             let _ = ShowWindow(h, SW_RESTORE).as_bool();
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
+
+        use windows::Win32::UI::WindowsAndMessaging::{
+            AllowSetForegroundWindow, GetWindowThreadProcessId,
+        };
+
+        #[link(name = "user32")]
+        extern "system" {
+            fn AttachThreadInput(idAttach: u32, idAttachTo: u32, fAttach: windows::core::BOOL) -> windows::core::BOOL;
+        }
         let _ = AllowSetForegroundWindow(0xFFFFFFFF); // ASFW_ANY
+
+        // UIPI & Thread Input Attach: sincroniza thread de input atual com a da janela alvo
+        let current_tid = windows::Win32::System::Threading::GetCurrentThreadId();
+        let target_tid = GetWindowThreadProcessId(h, None);
+        if current_tid != target_tid && target_tid != 0 {
+            let _ = AttachThreadInput(current_tid, target_tid, windows::core::BOOL(1));
+        }
+
         let _ = SetWindowPos(h, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         let _ = SetWindowPos(h, Some(HWND_NOTOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+
         let ok = SetForegroundWindow(h);
         if !ok.as_bool() {
+            // Bypass legal de UIPI simulando keybd_event VK_MENU (Alt) para conceder direito de foco
             crate::keyboard::key_press("alt").ok();
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            std::thread::sleep(std::time::Duration::from_millis(30));
             let _ = SetForegroundWindow(h);
         }
+
+        if current_tid != target_tid && target_tid != 0 {
+            let _ = AttachThreadInput(current_tid, target_tid, windows::core::BOOL(0));
+        }
+
         Ok(())
     }
 }
@@ -325,6 +375,25 @@ pub fn save_file_dialog(path: &str, timeout_ms: u64) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Detecta se a janela alvo especificada ou ativa está temporariamente bloqueada por um diálogo modal (#32770).
+/// Se estiver bloqueada, retorna as informações do diálogo modal bloqueador.
+pub fn get_blocking_modal(target_hwnd: isize) -> Result<Option<WindowInfo>> {
+    let wins = list_windows(true)?;
+    let target = if target_hwnd != 0 {
+        find_window_by_hwnd(target_hwnd).ok()
+    } else {
+        foreground_window().ok()
+    };
+
+    let target_pid = target.map(|w| w.pid).unwrap_or(0);
+    for w in wins {
+        if w.class_name == "#32770" && (target_pid == 0 || w.pid == target_pid) && w.hwnd != target_hwnd {
+            return Ok(Some(w));
+        }
+    }
+    Ok(None)
 }
 
 #[allow(dead_code)]

@@ -237,5 +237,30 @@ pub fn set_cursor_position(p: Point) -> Result<()> {
     Ok(())
 }
 
+/// Aguarda de forma eficiente até que a região especificada da tela apresente alteração visual de pixels,
+/// ou até que o timeout_ms seja atingido. Evita múltiplos roundtrips desnecessários do LLM.
+pub fn wait_for_screen_change(region: Option<Rect>, timeout_ms: u64, poll_interval_ms: u64) -> Result<bool> {
+    let reg = match region {
+        Some(r) => r,
+        None => {
+            let (w, h) = screen_size()?;
+            Rect { x: 0, y: 0, width: w, height: h }
+        }
+    };
+
+    let initial = screenshot_region(reg, None)?;
+    let start = std::time::Instant::now();
+    let interval = std::time::Duration::from_millis(poll_interval_ms.max(15));
+
+    while start.elapsed().as_millis() < timeout_ms as u128 {
+        std::thread::sleep(interval);
+        let cur = screenshot_region(reg, None)?;
+        if cur.png_base64 != initial.png_base64 {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[allow(dead_code)]
 fn _use_ptr() { let _ = ptr::null::<i32>(); }

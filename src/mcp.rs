@@ -546,6 +546,16 @@ pub fn get_all_tools() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "cu_check_modal",
+            "description": "Check if the active or target window is blocked by a modal dialog (#32770). Returns blocking modal information if found.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "hwnd": { "type": "integer", "description": "Optional window HWND to check (defaults to foreground window)" }
+                }
+            }
+        }),
+        json!({
             "name": "cu_wait_for_text",
             "description": "Reactively poll the active window until a target text substring appears in the UI tree or window text (up to timeout_ms).",
             "inputSchema": {
@@ -714,11 +724,22 @@ pub fn get_all_tools() -> Vec<Value> {
         }),
         json!({
             "name": "cu_wait_for_change",
-            "description": "Reactively poll the foreground window and UI Automation tree in 25ms ticks until a structural UI transition occurs (menu/popup opens, title changes, or window switches) or timeout_ms elapses.",
+            "description": "Reactively poll the foreground window, UI Automation tree, or a custom screen region until a structural or visual transition occurs or timeout_ms elapses.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "timeout_ms": { "type": "integer", "description": "Max milliseconds to wait for a UI transition (default: 2000)", "default": 2000 }
+                    "timeout_ms": { "type": "integer", "description": "Max milliseconds to wait for a UI or visual transition (default: 2000)", "default": 2000 },
+                    "poll_ms": { "type": "integer", "description": "Polling interval in ms when watching a visual region (default: 50)", "default": 50 },
+                    "region": {
+                        "type": "object",
+                        "description": "Optional specific screen region {x, y, width, height} to watch for pixel changes",
+                        "properties": {
+                            "x": { "type": "integer" },
+                            "y": { "type": "integer" },
+                            "width": { "type": "integer" },
+                            "height": { "type": "integer" }
+                        }
+                    }
                 }
             }
         }),
@@ -1615,15 +1636,33 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
 
         "cu_wait_for_change" => {
             let timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(2000);
-            let (delta, obs, elapsed) = env.wait_for_change(timeout_ms).map_err(|e| e.to_string())?;
-            Ok(json!({
-                "changed": delta.hwnd_changed || delta.title_changed || delta.marks_delta != 0,
-                "elapsed_ms": elapsed,
-                "ui_delta": delta.summary,
-                "active_window": obs.window_title,
-                "interactive_targets_count": obs.marks.len(),
-                "prompt_summary": obs.compact_prompt
-            }))
+            if let Some(reg_obj) = args.get("region").and_then(|v| v.as_object()) {
+                let poll_ms = args.get("poll_ms").and_then(|v| v.as_u64()).unwrap_or(50);
+                let reg = Rect {
+                    x: reg_obj.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                    y: reg_obj.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                    width: reg_obj.get("width").and_then(|v| v.as_u64()).unwrap_or(200).max(1) as u32,
+                    height: reg_obj.get("height").and_then(|v| v.as_u64()).unwrap_or(200).max(1) as u32,
+                };
+                let start = std::time::Instant::now();
+                let changed = screen::wait_for_screen_change(Some(reg), timeout_ms, poll_ms).map_err(|e| e.to_string())?;
+                let elapsed = start.elapsed().as_millis() as u64;
+                Ok(json!({
+                    "changed": changed,
+                    "elapsed_ms": elapsed,
+                    "region": reg
+                }))
+            } else {
+                let (delta, obs, elapsed) = env.wait_for_change(timeout_ms).map_err(|e| e.to_string())?;
+                Ok(json!({
+                    "changed": delta.hwnd_changed || delta.title_changed || delta.marks_delta != 0,
+                    "elapsed_ms": elapsed,
+                    "ui_delta": delta.summary,
+                    "active_window": obs.window_title,
+                    "interactive_targets_count": obs.marks.len(),
+                    "prompt_summary": obs.compact_prompt
+                }))
+            }
         }
 
         "cu_focus_window" => {
@@ -1919,6 +1958,15 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
             let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("desktop");
             let path = system::get_special_folder(name).map_err(|e| e.to_string())?;
             Ok(json!({ "success": true, "name": name, "path": path }))
+        }
+
+        "cu_check_modal" => {
+            let hwnd = args.get("hwnd").and_then(|v| v.as_i64()).unwrap_or(0) as isize;
+            let modal = window::get_blocking_modal(hwnd).map_err(|e| e.to_string())?;
+            Ok(json!({
+                "has_blocking_modal": modal.is_some(),
+                "modal": modal
+            }))
         }
 
         "cu_sync_schemas" => {
