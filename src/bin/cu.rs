@@ -146,7 +146,17 @@ enum Commands {
     /// Execute a JSON command from stdin or arg
     Exec { json: Option<String> },
     /// Observe current desktop state & Set-of-Marks perception
-    Observe,
+    Observe {
+        /// Output only the compact Set-of-Marks prompt summary
+        #[arg(long)]
+        compact: bool,
+        /// Optional window HWND to inspect without changing focus
+        #[arg(long)]
+        hwnd: Option<isize>,
+        /// Optional window title substring to inspect without changing focus
+        #[arg(long)]
+        title: Option<String>,
+    },
     /// Execute an atomic AgentAction from JSON string or stdin
     Step { action: Option<String>, #[arg(long)] stdin: bool },
     /// Interactive Agent REPL loop (reads JSON action on stdin, emits JSON observation on stdout)
@@ -221,16 +231,49 @@ fn parse_compact_dsl(input: &str) -> Option<Vec<serde_json::Value>> {
                     }
                 }
             }
+            "DC" | "DBLCLICK" => {
+                let parts: Vec<&str> = rest.split([',', ' ']).filter(|p| !p.is_empty()).collect();
+                if parts.len() >= 2 {
+                    if let (Ok(x), Ok(y)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                        actions.push(json!({"action": "double_click", "x": x, "y": y}));
+                    }
+                } else {
+                    actions.push(json!({"action": "double_click"}));
+                }
+            }
+            "RC" | "RCLICK" | "RIGHTCLICK" => {
+                let parts: Vec<&str> = rest.split([',', ' ']).filter(|p| !p.is_empty()).collect();
+                if parts.len() >= 2 {
+                    if let (Ok(x), Ok(y)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                        actions.push(json!({"action": "click", "button": "right", "x": x, "y": y}));
+                    }
+                } else {
+                    actions.push(json!({"action": "click", "button": "right"}));
+                }
+            }
+            "P" | "PASTE" => {
+                let text = rest.trim_matches('"').trim_matches('\'');
+                actions.push(json!({"action": "paste", "text": text}));
+            }
+            "S" | "SCROLL" => {
+                if let Ok(amount) = rest.parse::<i32>() {
+                    actions.push(json!({"action": "scroll", "amount": amount}));
+                }
+            }
+            "F" | "FOCUS" => {
+                let title = rest.trim_matches('"').trim_matches('\'');
+                actions.push(json!({"action": "focus", "title": title}));
+            }
             "T" | "TYPE" => {
                 let text = rest.trim_matches('"').trim_matches('\'');
                 actions.push(json!({"action": "type", "text": text}));
             }
             "K" | "KEY" => {
-                actions.push(json!({"action": "key", "key": rest}));
+                actions.push(json!({"action": "key", "name": rest}));
             }
             "H" | "HOTKEY" => {
                 let combo = rest.trim_matches('"').trim_matches('\'');
-                actions.push(json!({"action": "hotkey", "hotkey": combo}));
+                actions.push(json!({"action": "hotkey", "combo": combo}));
             }
             "W" | "WAIT" => {
                 if let Ok(ms) = rest.parse::<u64>() {
@@ -323,20 +366,24 @@ fn run_action(cmd: &serde_json::Value) -> serde_json::Value {
             let delay = cmd.get("delay").and_then(|v| v.as_u64()).unwrap_or(25);
             match ComputerUse::type_text_with_delay(&text, delay) { Ok(_) => json!({"ok": true, "chars": text.chars().count()}), Err(e) => json!({"ok": false, "error": e.to_string()}) }
         }
+        "paste" => {
+            let text = cmd.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            match ComputerUse::paste_text(&text) { Ok(_) => json!({"ok": true, "chars": text.chars().count()}), Err(e) => json!({"ok": false, "error": e.to_string()}) }
+        }
         "key" => {
-            let name = cmd.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let name = cmd.get("name").or_else(|| cmd.get("key")).and_then(|v| v.as_str()).unwrap_or("").to_string();
             match ComputerUse::key_press(&name) { Ok(_) => json!({"ok": true}), Err(e) => json!({"ok": false, "error": e.to_string()}) }
         }
         "key_down" => {
-            let name = cmd.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let name = cmd.get("name").or_else(|| cmd.get("key")).and_then(|v| v.as_str()).unwrap_or("").to_string();
             match ComputerUse::key_down(&name) { Ok(_) => json!({"ok": true}), Err(e) => json!({"ok": false, "error": e.to_string()}) }
         }
         "key_up" => {
-            let name = cmd.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let name = cmd.get("name").or_else(|| cmd.get("key")).and_then(|v| v.as_str()).unwrap_or("").to_string();
             match ComputerUse::key_up(&name) { Ok(_) => json!({"ok": true}), Err(e) => json!({"ok": false, "error": e.to_string()}) }
         }
         "hotkey" => {
-            let combo = cmd.get("combo").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let combo = cmd.get("combo").or_else(|| cmd.get("hotkey")).and_then(|v| v.as_str()).unwrap_or("").to_string();
             match ComputerUse::hotkey_str(&combo) { Ok(_) => json!({"ok": true}), Err(e) => json!({"ok": false, "error": e.to_string()}) }
         }
         "windows" => {
@@ -854,10 +901,22 @@ fn main() {
             }
             out(json!({"results": results}));
         }
-        Commands::Observe => {
+        Commands::Observe { compact, hwnd, title } => {
             let mut env = ComputerUse::agent_env();
-            match env.observe() {
-                Ok(obs) => out(json!({"ok": true, "observation": obs})),
+            match env.observe_target(hwnd, title.as_deref()) {
+                Ok(obs) => {
+                    if compact {
+                        out(json!({
+                            "ok": true,
+                            "window_title": obs.window_title,
+                            "window_hwnd": obs.window_hwnd,
+                            "marks_count": obs.marks.len(),
+                            "compact_prompt": obs.compact_prompt
+                        }));
+                    } else {
+                        out(json!({"ok": true, "observation": obs}));
+                    }
+                }
                 Err(e) => err(e),
             }
         }

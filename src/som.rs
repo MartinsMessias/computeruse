@@ -33,12 +33,32 @@ pub struct SomSnapshot {
     pub elements: Vec<InteractiveElement>,
 }
 
+/// Sanitizes UIA strings by stripping invisible Unicode bidi marks and collapsing newlines/tabs into single spaces.
+pub fn clean_ui_text(s: &str) -> String {
+    let filtered: String = s
+        .chars()
+        .filter(|&c| !matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}'))
+        .map(|c| if matches!(c, '\r' | '\n' | '\t') { ' ' } else { c })
+        .collect();
+    filtered.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn truncate_str(s: &str, max_chars: usize) -> String {
+    if s.chars().count() > max_chars {
+        let prefix: String = s.chars().take(max_chars.saturating_sub(3)).collect();
+        format!("{}...", prefix)
+    } else {
+        s.to_string()
+    }
+}
+
 impl SomSnapshot {
     /// Formats the elements into a high-density, categorized representation for ultra-fast LLM comprehension.
     pub fn to_compact_prompt(&self) -> String {
+        let clean_title = clean_ui_text(&self.title);
         let mut out = format!(
             "Window: \"{}\" [HWND={}] Bounds: {}x{} at ({}, {})\n",
-            self.title, self.hwnd, self.window_rect.width, self.window_rect.height, self.window_rect.x, self.window_rect.y
+            clean_title, self.hwnd, self.window_rect.width, self.window_rect.height, self.window_rect.x, self.window_rect.y
         );
 
         let mut tools_and_buttons = Vec::new();
@@ -47,31 +67,35 @@ impl SomSnapshot {
         let mut menus_and_other = Vec::new();
 
         for el in &self.elements {
-            if el.control_type == "Group" || el.control_type == "Window" {
+            if matches!(el.control_type.as_str(), "Group" | "Window" | "Pane" | "TitleBar") {
                 continue;
             }
+            let raw_label = if !el.name.trim().is_empty() {
+                clean_ui_text(&el.name)
+            } else if !el.automation_id.trim().is_empty() {
+                clean_ui_text(&el.automation_id)
+            } else {
+                String::new()
+            };
+
+            if raw_label.is_empty() && el.value.is_none() {
+                continue;
+            }
+
             let val_suffix = el.value.as_ref().map(|v| {
-                if v.chars().count() > 28 {
-                    let p: String = v.chars().take(25).collect();
-                    format!("=\"{}...\"", p)
-                } else {
-                    format!("=\"{}\"", v)
-                }
+                let cv = clean_ui_text(v);
+                format!("=\"{}\"", truncate_str(&cv, 28))
             }).unwrap_or_default();
-            let entry = format!("[{:02}] \"{}\"{} ({},{})", el.mark_id, el.name, val_suffix, el.center.x, el.center.y);
+
+            let label = truncate_str(&raw_label, 42);
+            let entry = format!("[{:02}] \"{}\"{} ({},{})", el.mark_id, label, val_suffix, el.center.x, el.center.y);
             match el.control_type.as_str() {
                 "ListItem" => palette_items.push(entry),
                 "Button" | "RadioButton" | "SplitButton" | "CheckBox" => tools_and_buttons.push(entry),
-                "Edit" | "Document" | "ComboBox" | "Spinner" | "Slider" => inputs.push(entry),
+                "Edit" | "Document" | "ComboBox" | "Spinner" | "Slider" | "ProgressBar" => inputs.push(entry),
                 _ => {
-                    // Truncate overly long feed/guide descriptions to avoid token bloat
-                    let short_name = if el.name.chars().count() > 35 {
-                        let prefix: String = el.name.chars().take(32).collect();
-                        format!("{}...", prefix)
-                    } else {
-                        el.name.clone()
-                    };
-                    menus_and_other.push(format!("[{:02}] \"{}\" ({},{})", el.mark_id, short_name, el.center.x, el.center.y));
+                    let short_name = truncate_str(&raw_label, 35);
+                    menus_and_other.push(format!("[{:02}] \"{}\"{} ({},{})", el.mark_id, short_name, val_suffix, el.center.x, el.center.y));
                 }
             }
         }
@@ -135,26 +159,15 @@ impl SomSnapshot {
         mouse::click(MouseButton::Left, Some(el.center))
     }
 
-    /// Captures the window screenshot and overlays numbered high-contrast visual badges
-    /// corresponding to each mark ID. Returns the encoded PNG bytes.
-    pub fn generate_annotated_image(&self) -> Result<Vec<u8>> {
-        let raw_shot = screen::screenshot_window(self.hwnd)?;
-        let raw_bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            &raw_shot.png_base64,
-        )
-        .map_err(|e| CuError::Image(e.to_string()))?;
-
-        let img = image::load_from_memory(&raw_bytes).map_err(|e| CuError::Image(e.to_string()))?;
+    /// Overlays numbered high-contrast visual badges onto an existing PNG image buffer
+    /// whose top-left screen origin is `(region.x, region.y)`.
+    pub fn annotate_png_bytes(&self, raw_png_bytes: &[u8], region: Rect) -> Result<Vec<u8>> {
+        let img = image::load_from_memory(raw_png_bytes).map_err(|e| CuError::Image(e.to_string()))?;
         let mut rgba = img.to_rgba8();
 
-        let win_x = self.window_rect.x;
-        let win_y = self.window_rect.y;
-
         for el in &self.elements {
-            // Element center in window-local pixels
-            let local_x = el.center.x - win_x;
-            let local_y = el.center.y - win_y;
+            let local_x = el.center.x - region.x;
+            let local_y = el.center.y - region.y;
 
             if local_x >= 0
                 && local_y >= 0
@@ -171,6 +184,19 @@ impl SomSnapshot {
             .map_err(|e| CuError::Image(e.to_string()))?;
 
         Ok(out)
+    }
+
+    /// Captures the window screenshot and overlays numbered high-contrast visual badges
+    /// corresponding to each mark ID. Returns the encoded PNG bytes.
+    pub fn generate_annotated_image(&self) -> Result<Vec<u8>> {
+        let raw_shot = screen::screenshot_window(self.hwnd)?;
+        let raw_bytes = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            &raw_shot.png_base64,
+        )
+        .map_err(|e| CuError::Image(e.to_string()))?;
+
+        self.annotate_png_bytes(&raw_bytes, self.window_rect)
     }
 }
 
@@ -197,14 +223,15 @@ pub fn capture_som(hwnd: isize) -> Result<SomSnapshot> {
         .map_err(|e| CuError::Windows(e.to_string()))?;
 
     let mut raw_elements = Vec::new();
-    traverse_interactive(&root, &walker, &mut raw_elements, 0);
+    let mut visited = 0usize;
+    traverse_interactive(&root, &walker, &mut raw_elements, 0, &mut visited);
 
     let mut elements = Vec::new();
     let mut mark_id = 1;
 
     for el in raw_elements {
-        let name = el.get_name().unwrap_or_default();
-        let automation_id = el.get_automation_id().unwrap_or_default();
+        let name = clean_ui_text(&el.get_name().unwrap_or_default());
+        let automation_id = clean_ui_text(&el.get_automation_id().unwrap_or_default());
         let control_type = format!("{:?}", el.get_control_type().unwrap_or(uiautomation::controls::ControlType::Custom));
         let r = el.get_bounding_rectangle().unwrap_or_default();
         let width = r.get_width().max(0) as u32;
@@ -225,15 +252,29 @@ pub fn capture_som(hwnd: isize) -> Result<SomSnapshot> {
             continue;
         }
 
-        // Extract live value for Edit and ComboBox controls safely
+        // Extract live value for Edit, ComboBox, Slider, Spinner, Document, ProgressBar controls safely
         let value = match control_type.as_str() {
-            "Edit" | "ComboBox" => crate::uia::get_element_value(&el),
+            "Edit" | "ComboBox" | "Slider" | "Spinner" | "Document" | "ProgressBar" => crate::uia::get_element_value(&el),
             _ => None,
         };
+
+        // Skip completely unnamed, ID-less, value-less buttons/items that carry zero semantic utility
+        if name.is_empty() && automation_id.is_empty() && value.is_none() {
+            continue;
+        }
 
         // Element center point
         let cx = x + (width as i32 / 2);
         let cy = y + (height as i32 / 2);
+
+        // Deduplicate overlapping marks or inner Text labels of Buttons/TabItems within 8px with the same name
+        if elements.iter().any(|prev: &InteractiveElement| {
+            prev.name == name
+                && (prev.center.x - cx).abs() <= 8
+                && (prev.center.y - cy).abs() <= 8
+        }) {
+            continue;
+        }
 
         // Normalize relative to window
         let win_w = win.rect.width.max(1) as f64;
@@ -256,9 +297,15 @@ pub fn capture_som(hwnd: isize) -> Result<SomSnapshot> {
         mark_id += 1;
     }
 
+    let display_title = if win.title.trim().is_empty() {
+        format!("[{}]", win.class_name)
+    } else {
+        win.title
+    };
+
     Ok(SomSnapshot {
         hwnd,
-        title: win.title,
+        title: display_title,
         window_rect: win.rect,
         elements,
     })
@@ -269,43 +316,53 @@ fn traverse_interactive(
     walker: &uiautomation::core::UITreeWalker,
     out: &mut Vec<uiautomation::core::UIElement>,
     depth: usize,
+    visited: &mut usize,
 ) {
-    if depth > 14 || out.len() >= 180 {
+    if depth > 12 || out.len() >= 160 || *visited >= 400 {
         return;
     }
+    *visited += 1;
 
-    if let Ok(ct) = el.get_control_type() {
-        let ct_name = format!("{:?}", ct);
-        let is_actionable = matches!(
-            ct_name.as_str(),
-            "Button"
-                | "SplitButton"
-                | "CheckBox"
-                | "ComboBox"
-                | "Edit"
-                | "Document"
-                | "Hyperlink"
-                | "ListItem"
-                | "TreeItem"
-                | "DataItem"
-                | "MenuItem"
-                | "MenuBar"
-                | "RadioButton"
-                | "TabItem"
-                | "Slider"
-                | "Spinner"
-        );
+    if !el.is_offscreen().unwrap_or(false) {
+        if let Ok(ct) = el.get_control_type() {
+            let ct_name = format!("{:?}", ct);
+            let is_container = matches!(
+                ct_name.as_str(),
+                "Window" | "Group" | "Pane" | "TitleBar" | "ToolBar" | "MenuBar" | "StatusBar" | "ScrollBar"
+            );
+            let is_actionable = matches!(
+                ct_name.as_str(),
+                "Button"
+                    | "SplitButton"
+                    | "CheckBox"
+                    | "ComboBox"
+                    | "Edit"
+                    | "Document"
+                    | "Hyperlink"
+                    | "ListItem"
+                    | "TreeItem"
+                    | "DataItem"
+                    | "MenuItem"
+                    | "RadioButton"
+                    | "TabItem"
+                    | "Slider"
+                    | "Spinner"
+            );
 
-        let has_name = el.get_name().map(|n| !n.trim().is_empty()).unwrap_or(false);
+            let has_name = el.get_name().map(|n| !n.trim().is_empty()).unwrap_or(false);
 
-        if is_actionable || has_name {
-            out.push(el.clone());
+            if !is_container && (is_actionable || has_name) {
+                out.push(el.clone());
+            }
         }
     }
 
     if let Ok(mut child) = walker.get_first_child(el) {
         loop {
-            traverse_interactive(&child, walker, out, depth + 1);
+            if *visited >= 400 || out.len() >= 160 {
+                break;
+            }
+            traverse_interactive(&child, walker, out, depth + 1, visited);
             match walker.get_next_sibling(&child) {
                 Ok(n) => child = n,
                 Err(_) => break,

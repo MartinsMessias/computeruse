@@ -56,33 +56,58 @@ pub fn focused_element() -> Result<UiElementInfo> {
 }
 
 pub fn get_element_value(el: &uiautomation::core::UIElement) -> Option<String> {
-    if let Ok(val) = el.get_property_value(uiautomation::types::UIProperty::ValueValue) {
-        if val.is_string() {
-            if let Ok(s) = val.get_string() {
-                let trimmed = s.trim();
-                if !trimmed.is_empty() {
-                    return Some(trimmed.to_string());
+    for prop in [
+        uiautomation::types::UIProperty::ValueValue,
+        uiautomation::types::UIProperty::LegacyIAccessibleValue,
+    ] {
+        if let Ok(val) = el.get_property_value(prop) {
+            if val.is_string() {
+                if let Ok(s) = val.get_string() {
+                    let cleaned = crate::som::clean_ui_text(&s);
+                    if !cleaned.is_empty() {
+                        return Some(cleaned);
+                    }
                 }
             }
+        }
+    }
+    if let Ok(val) = el.get_property_value(uiautomation::types::UIProperty::RangeValueValue) {
+        let s = val.to_string();
+        let cleaned = crate::som::clean_ui_text(&s);
+        if !cleaned.is_empty() && cleaned != "EMPTY" && cleaned != "NULL" {
+            return Some(cleaned);
         }
     }
     None
 }
 
+fn new_uia() -> Result<UIAutomation> {
+    for _ in 0..3 {
+        if let Ok(a) = UIAutomation::new() {
+            return Ok(a);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    UIAutomation::new().map_err(|e| CuError::Windows(e.to_string()))
+}
+
 fn foreground_or_root(automation: &UIAutomation) -> Result<uiautomation::core::UIElement> {
-    if let Ok(fg) = crate::window::foreground_window() {
-        if fg.hwnd != 0 {
-            let handle: uiautomation::types::Handle = unsafe { std::mem::transmute(fg.hwnd as *mut std::ffi::c_void) };
-            if let Ok(el) = automation.element_from_handle(handle) {
-                return Ok(el);
+    for _ in 0..3 {
+        if let Ok(fg) = crate::window::foreground_window() {
+            if fg.hwnd != 0 {
+                let handle: uiautomation::types::Handle = unsafe { std::mem::transmute(fg.hwnd as *mut std::ffi::c_void) };
+                if let Ok(el) = automation.element_from_handle(handle) {
+                    return Ok(el);
+                }
             }
         }
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
     automation.get_root_element().map_err(|e| CuError::Windows(e.to_string()))
 }
 
 pub fn find_by_name(name: &str) -> Result<Vec<UiElementInfo>> {
-    let automation = UIAutomation::new().map_err(|e| CuError::Windows(e.to_string()))?;
+    let automation = new_uia()?;
     let cond = automation
         .create_property_condition(
             uiautomation::types::UIProperty::Name,
@@ -99,18 +124,20 @@ pub fn find_by_name(name: &str) -> Result<Vec<UiElementInfo>> {
     // Fuzzy & Substring fallback walk if exact match yields nothing
     if let Ok(walker) = automation.get_control_view_walker() {
         let mut fuzzy_matches = Vec::new();
-        find_element_fuzzy_recursive(&fg_root, &walker, name, &mut fuzzy_matches, 0);
+        let mut visited = 0usize;
+        find_element_fuzzy_recursive(&fg_root, &walker, name, &mut fuzzy_matches, 0, &mut visited);
         if !fuzzy_matches.is_empty() {
             return Ok(fuzzy_matches.iter().map(to_info).collect());
         }
     }
 
-    let root = automation.get_root_element().map_err(|e| CuError::Windows(e.to_string()))?;
-    let els = root
-        .find_all(uiautomation::types::TreeScope::Children, &cond)
-        .or_else(|_| fg_root.find_all(uiautomation::types::TreeScope::Descendants, &cond))
-        .unwrap_or_default();
-    Ok(els.iter().map(to_info).collect())
+    if let Ok(root) = automation.get_root_element() {
+        let els = root
+            .find_all(uiautomation::types::TreeScope::Children, &cond)
+            .unwrap_or_default();
+        return Ok(els.iter().map(to_info).collect());
+    }
+    Ok(Vec::new())
 }
 
 fn find_element_fuzzy_recursive(
@@ -119,19 +146,24 @@ fn find_element_fuzzy_recursive(
     query: &str,
     out: &mut Vec<uiautomation::core::UIElement>,
     depth: usize,
+    visited: &mut usize,
 ) {
-    if depth > 7 || out.len() >= 20 {
+    if depth > 10 || out.len() >= 25 || *visited >= 200 {
         return;
     }
+    *visited += 1;
     let name = el.get_name().unwrap_or_default().to_lowercase();
     let auto_id = el.get_automation_id().unwrap_or_default().to_lowercase();
     let q = query.to_lowercase();
-    if (name.contains(&q) || auto_id.contains(&q)) && !name.is_empty() {
+    if (name.contains(&q) || auto_id.contains(&q)) && (!name.is_empty() || !auto_id.is_empty()) {
         out.push(el.clone());
     }
     if let Ok(mut child) = walker.get_first_child(el) {
         loop {
-            find_element_fuzzy_recursive(&child, walker, query, out, depth + 1);
+            if *visited >= 200 || out.len() >= 25 {
+                break;
+            }
+            find_element_fuzzy_recursive(&child, walker, query, out, depth + 1, visited);
             match walker.get_next_sibling(&child) {
                 Ok(next) => child = next,
                 Err(_) => break,
@@ -179,7 +211,8 @@ pub fn click_by_name(name: &str) -> Result<UiElementInfo> {
         // Try fuzzy / substring match in foreground window
         if let Ok(walker) = automation.get_control_view_walker() {
             let mut matches = Vec::new();
-            find_element_fuzzy_recursive(&fg_root, &walker, name, &mut matches, 0);
+            let mut visited = 0usize;
+            find_element_fuzzy_recursive(&fg_root, &walker, name, &mut matches, 0, &mut visited);
             if let Some(first) = matches.into_iter().next() {
                 first
             } else {
@@ -218,7 +251,7 @@ pub fn click_by_name(name: &str) -> Result<UiElementInfo> {
 
 /// Extracts all visible text strings, labels, and control values from a window (or foreground window if hwnd == 0).
 pub fn read_window_text(hwnd: isize) -> Result<Vec<String>> {
-    let automation = UIAutomation::new().map_err(|e| CuError::Windows(e.to_string()))?;
+    let automation = new_uia()?;
     let root = if hwnd == 0 {
         foreground_or_root(&automation)?
     } else {
@@ -227,7 +260,8 @@ pub fn read_window_text(hwnd: isize) -> Result<Vec<String>> {
     };
     let walker = automation.get_control_view_walker().map_err(|e| CuError::Windows(e.to_string()))?;
     let mut lines = Vec::new();
-    collect_text_recursive(&root, &walker, &mut lines, 0);
+    let mut visited = 0usize;
+    collect_text_recursive(&root, &walker, &mut lines, 0, &mut visited);
     Ok(lines)
 }
 
@@ -236,22 +270,32 @@ fn collect_text_recursive(
     walker: &uiautomation::core::UITreeWalker,
     out: &mut Vec<String>,
     depth: usize,
+    visited: &mut usize,
 ) {
-    if depth > 6 || out.len() >= 140 {
+    if depth > 10 || out.len() >= 200 || *visited >= 350 {
         return;
     }
-    let name = el.get_name().unwrap_or_default();
-    let trimmed = name.trim();
-    if !trimmed.is_empty() {
-        let s = trimmed.to_string();
-        if out.last() != Some(&s) {
-            out.push(s);
+    *visited += 1;
+    if el.is_offscreen().unwrap_or(false) {
+        return;
+    }
+    let name = crate::som::clean_ui_text(&el.get_name().unwrap_or_default());
+    if !name.is_empty() {
+        if out.last() != Some(&name) {
+            out.push(name.clone());
         }
     }
     if let Ok(ct) = el.get_control_type() {
-        if matches!(ct, uiautomation::controls::ControlType::Edit | uiautomation::controls::ControlType::ComboBox) {
+        if matches!(
+            ct,
+            uiautomation::controls::ControlType::Edit
+                | uiautomation::controls::ControlType::ComboBox
+                | uiautomation::controls::ControlType::Document
+                | uiautomation::controls::ControlType::Slider
+                | uiautomation::controls::ControlType::Spinner
+        ) {
             if let Some(val) = get_element_value(el) {
-                if out.last() != Some(&val) && val != trimmed {
+                if out.last() != Some(&val) && val != name {
                     out.push(val);
                 }
             }
@@ -260,7 +304,10 @@ fn collect_text_recursive(
 
     if let Ok(mut child) = walker.get_first_child(el) {
         loop {
-            collect_text_recursive(&child, walker, out, depth + 1);
+            if *visited >= 350 || out.len() >= 200 {
+                break;
+            }
+            collect_text_recursive(&child, walker, out, depth + 1, visited);
             match walker.get_next_sibling(&child) {
                 Ok(n) => child = n,
                 Err(_) => break,

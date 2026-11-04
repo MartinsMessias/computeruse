@@ -185,7 +185,7 @@ Every subcommand prints a structured JSON object to `stdout`.
 
 ```sh
 # Agent Perception, Step, REPL & MCP Server
-cu observe
+cu observe [--compact] [--hwnd N] [--title "..."]
 cu step '{"action":"click_mark","mark_id":3}'
 cu repl
 cu mcp [--sync]
@@ -269,11 +269,16 @@ cu exec "C 500,300; W 100; T 'hello world'; K enter; H ctrl+s; D 100,100,400,400
 | Command | Syntax | Description |
 |---|---|---|
 | `C` / `CLICK` | `C x,y` or `C` | Left-click at `(x, y)` or current cursor position |
+| `DC` / `DBLCLICK` | `DC x,y` or `DC` | Double-click at `(x, y)` or current cursor position |
+| `RC` / `RCLICK` | `RC x,y` or `RC` | Right-click at `(x, y)` or current cursor position |
 | `M` / `MOVE` | `M x,y` | Move cursor to `(x, y)` |
 | `D` / `DRAG` | `D x1,y1,x2,y2` | Drag from `(x1, y1)` to `(x2, y2)` |
+| `S` / `SCROLL` | `S -5` | Scroll mouse wheel (`-N` down, `+N` up) |
 | `T` / `TYPE` | `T 'text'` | Type text string |
+| `P` / `PASTE` | `P 'text'` | Paste text instantaneously via non-destructive clipboard |
 | `K` / `KEY` | `K enter` | Press a named key |
 | `H` / `HOTKEY` | `H ctrl+s` | Dispatch a hotkey combination |
+| `F` / `FOCUS` | `F 'Notepad'` | Focus a window by title substring |
 | `W` / `WAIT` | `W 150` | Sleep for `N` milliseconds |
 
 ---

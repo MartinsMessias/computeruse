@@ -191,16 +191,27 @@ impl AgentEnvironment {
 
     /// Observes the current state of the active desktop and foreground window.
     pub fn observe(&mut self) -> Result<Observation> {
-        let win = window::foreground_window().unwrap_or(WindowInfo {
-            hwnd: 0,
-            title: "Desktop".into(),
-            class_name: "Desktop".into(),
-            pid: 0,
-            rect: Rect { x: 0, y: 0, width: 1920, height: 1080 },
-            is_visible: true,
-            is_minimized: false,
-            is_maximized: false,
-        });
+        self.observe_target(None, None)
+    }
+
+    /// Observes a specific target window by HWND or title substring, or defaults to the foreground window.
+    pub fn observe_target(&mut self, target_hwnd: Option<isize>, target_title: Option<&str>) -> Result<Observation> {
+        let win = if let Some(h) = target_hwnd.filter(|&h| h != 0) {
+            window::find_window_by_hwnd(h)?
+        } else if let Some(title) = target_title.filter(|t| !t.trim().is_empty()) {
+            window::find_window(title)?
+        } else {
+            window::foreground_window().unwrap_or(WindowInfo {
+                hwnd: 0,
+                title: "Desktop".into(),
+                class_name: "Desktop".into(),
+                pid: 0,
+                rect: Rect { x: 0, y: 0, width: 1920, height: 1080 },
+                is_visible: true,
+                is_minimized: false,
+                is_maximized: false,
+            })
+        };
 
         let cursor_pos = screen::cursor_position().unwrap_or(Point { x: 0, y: 0 });
         let clipboard_preview = clipboard::get_text().ok().map(|s| {
@@ -213,7 +224,7 @@ impl AgentEnvironment {
             }
         });
 
-        // Capture Set-of-Marks snapshot of foreground window
+        // Capture Set-of-Marks snapshot of target window
         let som = capture_som(win.hwnd).unwrap_or(SomSnapshot {
             hwnd: win.hwnd,
             title: win.title.clone(),
@@ -221,12 +232,13 @@ impl AgentEnvironment {
             elements: Vec::new(),
         });
 
+        let display_title = som.title.clone();
         let compact_prompt = som.to_compact_prompt();
         let marks = som.elements.clone();
         self.last_som = Some(som);
 
         Ok(Observation {
-            window_title: win.title,
+            window_title: display_title,
             window_hwnd: win.hwnd,
             window_rect: win.rect,
             is_maximized: win.is_maximized,

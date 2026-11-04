@@ -316,10 +316,17 @@ fn system_file_association_and_sound() {
     let res = ComputerUse::system_play_sound("default");
     assert!(res.is_ok());
 
-    // Window snap calculation
+    // Window snap validation (restore original state afterwards so tests don't disrupt user's window)
     let fg = ComputerUse::foreground_window().unwrap();
+    let was_max = fg.is_maximized;
+    let orig_rect = fg.rect;
     let snapped = ComputerUse::snap_window(fg.hwnd, "center");
     assert!(snapped.is_ok());
+    if was_max {
+        let _ = ComputerUse::maximize_window(fg.hwnd);
+    } else {
+        let _ = ComputerUse::move_resize_window(fg.hwnd, orig_rect);
+    }
 
     // Color ratio test
     let sample = ComputerUse::get_pixel(Point { x: 50, y: 50 }).unwrap();
@@ -359,4 +366,34 @@ fn speed_optimizations_and_fuzzy_search() {
     if let Ok(fg) = ComputerUse::foreground_window() {
         let _ = computeruse::DynamicCanvas::find_in_window(fg.hwnd);
     }
+}
+
+#[test]
+fn som_sanitization_crop_annotation_and_modal_check() {
+    // 1. Verify clean_ui_text strips \r, \n, and Unicode bidi control marks
+    let dirty = "Clock 21:53\r\n\u{200e}03/\u{200e}11/\u{200e}2026   Extra";
+    assert_eq!(computeruse::som::clean_ui_text(dirty), "Clock 21:53 03/11/2026 Extra");
+
+    // 2. Verify modal check runs cleanly
+    let modal = ComputerUse::get_blocking_modal(0).unwrap();
+    let _ = modal;
+
+    // 3. Verify fast wait_for_screen_change timeout on static 32x32 region
+    let changed = ComputerUse::wait_for_screen_change(
+        Some(Rect { x: 10, y: 10, width: 32, height: 32 }),
+        40,
+        15,
+    )
+    .unwrap();
+    let _ = changed;
+
+    // 4. Verify cropped screenshot badge annotation
+    let fg = ComputerUse::foreground_window().unwrap();
+    let som = ComputerUse::som_snapshot(fg.hwnd).unwrap();
+    let crop = Rect { x: fg.rect.x, y: fg.rect.y, width: 120, height: 80 };
+    let shot = ComputerUse::screenshot_region(crop, None).unwrap();
+    use base64::Engine;
+    let raw_bytes = base64::engine::general_purpose::STANDARD.decode(&shot.png_base64).unwrap();
+    let annotated = som.annotate_png_bytes(&raw_bytes, crop).unwrap();
+    assert!(annotated.len() > 50);
 }

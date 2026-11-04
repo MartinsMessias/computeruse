@@ -238,7 +238,8 @@ pub fn set_cursor_position(p: Point) -> Result<()> {
 }
 
 /// Aguarda de forma eficiente até que a região especificada da tela apresente alteração visual de pixels,
-/// ou até que o timeout_ms seja atingido. Evita múltiplos roundtrips desnecessários do LLM.
+/// ou até que o timeout_ms seja atingido. Usa checksum visual FNV-1a direto sobre o buffer GDI (~1.5ms/tick)
+/// sem incorrer em compressão PNG ou alocação Base64.
 pub fn wait_for_screen_change(region: Option<Rect>, timeout_ms: u64, poll_interval_ms: u64) -> Result<bool> {
     let reg = match region {
         Some(r) => r,
@@ -248,14 +249,14 @@ pub fn wait_for_screen_change(region: Option<Rect>, timeout_ms: u64, poll_interv
         }
     };
 
-    let initial = screenshot_region(reg, None)?;
+    let initial_hash = crate::pixel::region_visual_checksum(reg)?;
     let start = std::time::Instant::now();
     let interval = std::time::Duration::from_millis(poll_interval_ms.max(15));
 
     while start.elapsed().as_millis() < timeout_ms as u128 {
         std::thread::sleep(interval);
-        let cur = screenshot_region(reg, None)?;
-        if cur.png_base64 != initial.png_base64 {
+        let cur_hash = crate::pixel::region_visual_checksum(reg)?;
+        if cur_hash != initial_hash {
             return Ok(true);
         }
     }

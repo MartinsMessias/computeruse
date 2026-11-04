@@ -366,10 +366,12 @@ pub fn get_all_tools() -> Vec<Value> {
     vec![
         json!({
             "name": "cu_observe",
-            "description": "Inspect the active foreground window and extract a categorized, ultra-compact Set-of-Marks (SoM) digest with numeric IDs for zero-waste navigation.",
+            "description": "Inspect the active foreground window (or a specific window by hwnd/title) and extract a categorized, ultra-compact Set-of-Marks (SoM) digest with numeric IDs for zero-waste navigation.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "hwnd": { "type": "integer", "description": "Optional window HWND to inspect without changing focus" },
+                    "title": { "type": "string", "description": "Optional window title substring to inspect without changing focus" },
                     "verbose": { "type": "boolean", "description": "Optional: set true to include full raw marks array with bounding boxes", "default": false }
                 }
             }
@@ -1054,14 +1056,38 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
         match name {
         "cu_observe" => {
             let verbose = args.get("verbose").and_then(|v| v.as_bool()).unwrap_or(false);
-            match env.observe() {
+            let target_hwnd = args.get("hwnd").and_then(|v| v.as_i64()).map(|h| h as isize);
+            let target_title = args.get("title").and_then(|v| v.as_str());
+            match env.observe_target(target_hwnd, target_title) {
                 Ok(obs) => {
-                    let canvas_info = DynamicCanvas::find_in_window(obs.window_hwnd).ok().map(|c| json!({
-                        "origin": [c.origin_x, c.origin_y],
-                        "width": c.width,
-                        "height": c.height,
-                        "aspect_ratio": c.aspect_ratio
-                    }));
+                    // Fast O(N) canvas detection from already-captured marks (avoids redundant 2nd full-tree UIA walk)
+                    let canvas_info = if obs.window_rect.width >= 200 && obs.window_rect.height >= 200 {
+                        let canvas_el = obs.marks.iter().find(|m| {
+                            (m.automation_id.eq_ignore_ascii_case("image") || m.name.to_lowercase().contains("canvas"))
+                                && m.rect.width > 200
+                                && m.rect.height > 200
+                        });
+                        let c = if let Some(el) = canvas_el {
+                            DynamicCanvas::new(el.rect)
+                        } else {
+                            let r = obs.window_rect;
+                            let ribbon_offset = (r.height as f64 * 0.18).min(180.0) as u32;
+                            DynamicCanvas::new(Rect {
+                                x: r.x + 20,
+                                y: r.y + ribbon_offset as i32,
+                                width: r.width.saturating_sub(40).max(100),
+                                height: r.height.saturating_sub(ribbon_offset + 30).max(100),
+                            })
+                        };
+                        Some(json!({
+                            "origin": [c.origin_x, c.origin_y],
+                            "width": c.width,
+                            "height": c.height,
+                            "aspect_ratio": c.aspect_ratio
+                        }))
+                    } else {
+                        None
+                    };
                     let mut resp = json!({
                         "window": {
                             "title": obs.window_title,
@@ -1792,12 +1818,15 @@ fn handle_tools_call(id: Value, params: Value, env: &mut AgentEnvironment) -> Js
                     let annotate = args.get("annotate_marks").and_then(|v| v.as_bool()).unwrap_or(false);
                     if annotate {
                         if env.last_som().is_none() {
-                            let _ = env.observe();
+                            let _ = env.observe_target(hwnd, None);
                         }
                         if let Some(som) = env.last_som() {
-                            if let Ok(annotated_bytes) = som.generate_annotated_image() {
-                                use base64::Engine;
-                                s.png_base64 = base64::engine::general_purpose::STANDARD.encode(&annotated_bytes);
+                            use base64::Engine;
+                            if let Ok(raw_bytes) = base64::engine::general_purpose::STANDARD.decode(&s.png_base64) {
+                                let crop_rect = s.region.unwrap_or(som.window_rect);
+                                if let Ok(annotated_bytes) = som.annotate_png_bytes(&raw_bytes, crop_rect) {
+                                    s.png_base64 = base64::engine::general_purpose::STANDARD.encode(&annotated_bytes);
+                                }
                             }
                         }
                     }

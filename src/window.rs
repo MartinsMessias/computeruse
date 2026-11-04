@@ -108,37 +108,39 @@ pub fn foreground_window() -> Result<WindowInfo> {
 
 pub fn focus_window(hwnd: isize) -> Result<()> {
     unsafe {
-        let mut h = HWND(hwnd as *mut _);
-        if !IsWindow(Some(h)).as_bool() {
+        let frame_h = HWND(hwnd as *mut _);
+        if !IsWindow(Some(frame_h)).as_bool() {
             return Err(CuError::NotFound(format!("hwnd {}", hwnd)));
         }
 
-        // Resolucao inteligente de UWP/WinUI 3: se a janela for um container ApplicationFrameWindow,
-        // procuramos o HWND da janela filha real (CoreWindow ou processo empacotado) para foco garantido.
+        // Restore top-level window first before inspecting UWP child HWNDs
+        if IsIconic(frame_h).as_bool() {
+            let _ = ShowWindow(frame_h, SW_RESTORE).as_bool();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        // UWP/WinUI 3 resolution: if the window is an ApplicationFrameWindow container,
+        // locate the visible child HWND (CoreWindow / packaged input host) for input attachment.
+        let mut focus_h = frame_h;
         let mut cls_buf = [0u16; 64];
-        let clen = GetClassNameW(h, &mut cls_buf).max(0) as usize;
+        let clen = GetClassNameW(frame_h, &mut cls_buf).max(0) as usize;
         let cls_name = String::from_utf16_lossy(&cls_buf[..clen]);
         if cls_name == "ApplicationFrameWindow" {
             unsafe extern "system" fn enum_child(child: HWND, lparam: LPARAM) -> windows::core::BOOL {
                 if IsWindowVisible(child).as_bool() {
                     let out = &mut *(lparam.0 as *mut HWND);
                     *out = child;
-                    return windows::core::BOOL(0); // para no primeiro filho visivel
+                    return windows::core::BOOL(0);
                 }
                 windows::core::BOOL(1)
             }
             let mut real_child = HWND::default();
             let ptr = &mut real_child as *mut HWND;
             use windows::Win32::UI::WindowsAndMessaging::EnumChildWindows;
-            let _ = EnumChildWindows(Some(h), Some(enum_child), LPARAM(ptr as isize));
+            let _ = EnumChildWindows(Some(frame_h), Some(enum_child), LPARAM(ptr as isize));
             if !real_child.0.is_null() {
-                h = real_child;
+                focus_h = real_child;
             }
-        }
-
-        if IsIconic(h).as_bool() {
-            let _ = ShowWindow(h, SW_RESTORE).as_bool();
-            std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
         use windows::Win32::UI::WindowsAndMessaging::{
@@ -151,22 +153,23 @@ pub fn focus_window(hwnd: isize) -> Result<()> {
         }
         let _ = AllowSetForegroundWindow(0xFFFFFFFF); // ASFW_ANY
 
-        // UIPI & Thread Input Attach: sincroniza thread de input atual com a da janela alvo
         let current_tid = windows::Win32::System::Threading::GetCurrentThreadId();
-        let target_tid = GetWindowThreadProcessId(h, None);
+        let target_tid = GetWindowThreadProcessId(focus_h, None);
         if current_tid != target_tid && target_tid != 0 {
             let _ = AttachThreadInput(current_tid, target_tid, windows::core::BOOL(1));
         }
 
-        let _ = SetWindowPos(h, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-        let _ = SetWindowPos(h, Some(HWND_NOTOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        let _ = SetWindowPos(frame_h, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        let _ = SetWindowPos(frame_h, Some(HWND_NOTOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
-        let ok = SetForegroundWindow(h);
+        let ok = SetForegroundWindow(frame_h);
         if !ok.as_bool() {
-            // Bypass legal de UIPI simulando keybd_event VK_MENU (Alt) para conceder direito de foco
             crate::keyboard::key_press("alt").ok();
             std::thread::sleep(std::time::Duration::from_millis(30));
-            let _ = SetForegroundWindow(h);
+            let _ = SetForegroundWindow(frame_h);
+        }
+        if focus_h != frame_h {
+            let _ = SetForegroundWindow(focus_h);
         }
 
         if current_tid != target_tid && target_tid != 0 {
@@ -320,9 +323,16 @@ pub fn set_opacity(hwnd: isize, alpha: u8) -> Result<()> {
 }
 
 /// Automates the standard Windows "Save As" Common Item Dialog (`#32770`).
-/// Triggers `Ctrl+S` if not already open, detects the dialog, types/pastes the target path,
-/// and submits with `Enter` in a single zero-roundtrip atomic macro.
+/// Triggers `Ctrl+S` if not already open, detects the dialog, normalizes path separators (`/` -> `\`),
+/// pastes the target path non-destructively, submits with `Enter`, and confirms any overwrite modal.
 pub fn save_file_dialog(path: &str, timeout_ms: u64) -> Result<()> {
+    let normalized_path = path.replace('/', "\\");
+    if let Some(parent) = std::path::Path::new(&normalized_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+    }
+
     // If no dialog is currently visible, press Ctrl+S
     let dialog_open = list_windows(true)?
         .into_iter()
@@ -351,23 +361,34 @@ pub fn save_file_dialog(path: &str, timeout_ms: u64) -> Result<()> {
         return Err(CuError::NotFound(format!("Save As dialog did not appear within {}ms", timeout_ms)));
     }
 
-    // Focus dialog and enter target path
+    // Focus dialog and enter target path using non-destructive paste
     focus_window(dlg_hwnd)?;
-    std::thread::sleep(std::time::Duration::from_millis(150));
+    std::thread::sleep(std::time::Duration::from_millis(120));
 
-    // Clear any default text and paste target path
+    let _ = crate::keyboard::combo_str("alt+n");
+    std::thread::sleep(std::time::Duration::from_millis(40));
     let _ = crate::keyboard::combo_str("ctrl+a");
     std::thread::sleep(std::time::Duration::from_millis(30));
-    crate::clipboard::set_text(path)?;
-    let _ = crate::keyboard::combo_str("ctrl+v");
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    crate::keyboard::paste_text(&normalized_path)?;
+    std::thread::sleep(std::time::Duration::from_millis(80));
     crate::keyboard::key_press("enter")?;
 
-    // Wait for dialog to dismiss
+    // Wait for dialog to dismiss, automatically confirming overwrite popups if they appear
     let dismiss_start = std::time::Instant::now();
     while dismiss_start.elapsed().as_millis() < 2000 {
-        if let Ok(w) = find_window_by_hwnd(dlg_hwnd) {
-            if !w.is_visible { break; }
+        if let Ok(windows) = list_windows(true) {
+            // Check if a secondary overwrite confirmation dialog (#32770) popped up
+            if let Some(confirm_dlg) = windows.iter().find(|w| {
+                w.class_name == "#32770" && w.hwnd != dlg_hwnd
+            }) {
+                let _ = focus_window(confirm_dlg.hwnd);
+                let _ = crate::keyboard::key_press("left");
+                std::thread::sleep(std::time::Duration::from_millis(25));
+                let _ = crate::keyboard::key_press("enter");
+            }
+            if !windows.iter().any(|w| w.hwnd == dlg_hwnd && w.is_visible) {
+                break;
+            }
         } else {
             break;
         }
